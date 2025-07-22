@@ -25,7 +25,7 @@ namespace PluginTest
                 app.UseSwaggerUI();
             }
 
-            app.UseHttpsRedirection();
+      
 
             app.UseAuthorization();
 
