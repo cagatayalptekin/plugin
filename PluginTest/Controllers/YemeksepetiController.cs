@@ -26,65 +26,47 @@ namespace PluginTest.Controllers
         }
         // Yemeksepeti sipariş gönderimi
 
+        private const string ExpectedApiKey = "X7kL93-fgh8W-Zmq0P-Ak2N9";
+
+        // 1) Senin verdiğin webhook (x-api-key + basit body de gelse kabul)
         [HttpPost("order")]
-        public async Task<IActionResult> ReceiveOrder([FromBody] DeliveryHeroOrderModel order)
+        public async Task<IActionResult> ReceiveOrderSimplified([FromBody] object body)
         {
-            const string expectedApiKey = "X7kL93-fgh8W-Zmq0P-Ak2N9";
+            Console.WriteLine("🟡 HIT /api/yemeksepeti/order");
 
-            Console.WriteLine("🟡 Yeni sipariş isteği alındı.");
-
-            // 🔒 API Key kontrolü
-            if (!Request.Headers.TryGetValue("x-api-key", out var apiKey))
+            // x-api-key doğrula (ancak varsa zorla)
+            if (!Request.Headers.TryGetValue("x-api-key", out var apiKey) || apiKey != ExpectedApiKey)
             {
-                Console.WriteLine("❌ API anahtarı eksik!");
-                return Unauthorized("API anahtarı eksik");
+                Console.WriteLine("❌ x-api-key invalid/missing");
+                return Unauthorized("API key hatalı");
             }
 
-            if (apiKey != expectedApiKey)
-            {
-                Console.WriteLine($"❌ Geçersiz API anahtarı: {apiKey}");
-                return Unauthorized("Geçersiz API anahtarı");
-            }
+            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = true });
+            var file = Path.Combine(Directory.GetCurrentDirectory(), "savehere.txt");
+            await System.IO.File.AppendAllTextAsync(file, $"\n\n--- Yeni Sipariş (YS Basit) ---\n{json}\n");
+            Console.WriteLine("💾 savehere.txt yazıldı");
 
-            Console.WriteLine("✅ API anahtarı doğrulandı.");
+            return Ok(new { status = "ok" });
+        }
 
-            if (order == null)
-            {
-                Console.WriteLine("❌ Sipariş içeriği boş.");
-                return BadRequest("Sipariş verisi boş.");
-            }
+        // 2) Standart DH endpoint (Bearer varsa kabul et; body büyük şema)
+        [HttpPost("/order/{remoteId}")]
+        public async Task<IActionResult> ReceiveOrderStandard(string remoteId, [FromBody] object body)
+        {
+            Console.WriteLine($"🟡 HIT /order/{remoteId}");
 
-            try
-            {
-                Console.WriteLine($"📦 Sipariş alındı. Kodu: {order.Code}, Token: {order.Token}");
+            // Bearer varsa logla (zorunlu kılmak istersen burada kontrol et)
+            var auth = Request.Headers.Authorization.ToString();
+            Console.WriteLine($"🔐 Authorization: {auth}");
 
-                // JSON string'e dönüştür
-                var orderJson = JsonSerializer.Serialize(order, new JsonSerializerOptions { WriteIndented = true });
-                Console.WriteLine("📝 Sipariş JSON formatına çevrildi.");
+            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = true });
+            var file = Path.Combine(Directory.GetCurrentDirectory(), "savehere.txt");
+            await System.IO.File.AppendAllTextAsync(file, $"\n\n--- Yeni Sipariş (DH Standart) ---\n{json}\n");
+            Console.WriteLine("💾 savehere.txt yazıldı");
 
-                // savehere.txt yolunu ayarla
-                string filePath = Path.Combine(Directory.GetCurrentDirectory(), "savehere.txt");
-                Console.WriteLine($"📁 Dosya yolu hazırlandı: {filePath}");
-
-                // Dosyaya ekle
-                await System.IO.File.AppendAllTextAsync(filePath, $"\n\n--- Yeni Sipariş ---\n{orderJson}\n");
-                Console.WriteLine("💾 Sipariş savehere.txt dosyasına yazıldı.");
-
-                // Başarılı yanıt dön
-                Console.WriteLine("✅ Sipariş başarıyla işlendi ve yanıt dönüldü.");
-                return Ok(new
-                {
-                    remoteResponse = new
-                    {
-                        remoteOrderId = $"POS_ORDER_{order.Token}"
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"❌ HATA: Dosyaya yazılamadı. Detay: {ex.Message}");
-                return StatusCode(500, $"Dosyaya yazarken hata oluştu: {ex.Message}");
-            }
+            // DH beklenen acknowledge formatı
+            // body içinden token'ı parse etmek yerine dummy döndük; istersen token'ı JsonDocument ile çekebiliriz.
+            return Ok(new { remoteResponse = new { remoteOrderId = $"POS_{remoteId}_ORDER_ACK" } });
         }
 
     }
