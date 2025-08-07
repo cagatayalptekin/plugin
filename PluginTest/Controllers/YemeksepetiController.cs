@@ -29,6 +29,7 @@ namespace PluginTest.Controllers
 
             try
             {
+                Console.WriteLine($"✅ Sipariş savehere.txt dosyasına yazıldı:");
                 // 🔹 JSON verisini oluştur
                 var orderJson = JsonSerializer.Serialize(order, new JsonSerializerOptions { WriteIndented = true });
 
