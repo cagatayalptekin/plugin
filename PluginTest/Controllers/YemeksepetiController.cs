@@ -105,7 +105,7 @@ namespace PluginTest.Controllers
         public DateTime? CreatedAt { get; set; }
         public Customer? Customer { get; set; }
         public Delivery? Delivery { get; set; }
-        public List<Discount?> Discounts { get; set; }
+        public List<Discount>? Discounts { get; set; }
         public string? ExpeditionType { get; set; }
         public DateTime? ExpiryDate { get; set; }
         public ExtraParameters? ExtraParameters { get; set; }
@@ -118,7 +118,7 @@ namespace PluginTest.Controllers
         public Pickup? Pickup { get; set; }
         public PlatformRestaurant? PlatformRestaurant { get; set; }
         public Price? Price { get; set; }
-        public List<Product?> Products { get; set; }
+        public List<Product>? Products { get; set; }
         public string? CorporateTaxId { get; set; }
         public CallbackUrls? CallbackUrls { get; set; }
     }
