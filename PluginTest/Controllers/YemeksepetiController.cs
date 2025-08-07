@@ -21,36 +21,63 @@ namespace PluginTest.Controllers
 
         // Yemeksepeti sipariş gönderimi
 
-        [HttpPost("/order/{remoteId}")]
-        public async Task<IActionResult> ReceiveOrder(string remoteId, [FromBody] DeliveryHeroOrderModel order)
+        [HttpPost("order")]
+        public async Task<IActionResult> ReceiveOrder([FromBody] DeliveryHeroOrderModel order)
         {
+            const string expectedApiKey = "X7kL93-fgh8W-Zmq0P-Ak2N9";
+
+            Console.WriteLine("🟡 Yeni sipariş isteği alındı.");
+
+            // 🔒 API Key kontrolü
+            if (!Request.Headers.TryGetValue("x-api-key", out var apiKey))
+            {
+                Console.WriteLine("❌ API anahtarı eksik!");
+                return Unauthorized("API anahtarı eksik");
+            }
+
+            if (apiKey != expectedApiKey)
+            {
+                Console.WriteLine($"❌ Geçersiz API anahtarı: {apiKey}");
+                return Unauthorized("Geçersiz API anahtarı");
+            }
+
+            Console.WriteLine("✅ API anahtarı doğrulandı.");
+
             if (order == null)
+            {
+                Console.WriteLine("❌ Sipariş içeriği boş.");
                 return BadRequest("Sipariş verisi boş.");
+            }
 
             try
             {
-                Console.WriteLine($"✅ Sipariş savehere.txt dosyasına yazıldı:");
-                // 🔹 JSON verisini oluştur
+                Console.WriteLine($"📦 Sipariş alındı. Kodu: {order.Code}, Token: {order.Token}");
+
+                // JSON string'e dönüştür
                 var orderJson = JsonSerializer.Serialize(order, new JsonSerializerOptions { WriteIndented = true });
+                Console.WriteLine("📝 Sipariş JSON formatına çevrildi.");
 
-                // 🔹 savehere.txt dosyasının yolu
+                // savehere.txt yolunu ayarla
                 string filePath = Path.Combine(Directory.GetCurrentDirectory(), "savehere.txt");
+                Console.WriteLine($"📁 Dosya yolu hazırlandı: {filePath}");
 
-                // 🔹 Dosyaya yaz (üstüne ekle)
+                // Dosyaya ekle
                 await System.IO.File.AppendAllTextAsync(filePath, $"\n\n--- Yeni Sipariş ---\n{orderJson}\n");
+                Console.WriteLine("💾 Sipariş savehere.txt dosyasına yazıldı.");
 
-                Console.WriteLine($"✅ Sipariş savehere.txt dosyasına yazıldı: {filePath}");
-
+                // Başarılı yanıt dön
+                Console.WriteLine("✅ Sipariş başarıyla işlendi ve yanıt dönüldü.");
                 return Ok(new
                 {
                     remoteResponse = new
                     {
-                        remoteOrderId = $"POS_{remoteId}_ORDER_{order.Token}"
+                        remoteOrderId = $"POS_ORDER_{order.Token}"
                     }
                 });
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"❌ HATA: Dosyaya yazılamadı. Detay: {ex.Message}");
                 return StatusCode(500, $"Dosyaya yazarken hata oluştu: {ex.Message}");
             }
         }
