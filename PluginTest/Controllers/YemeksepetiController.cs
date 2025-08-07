@@ -29,24 +29,17 @@ namespace PluginTest.Controllers
 
             try
             {
-                // JSON'u düzenli formatta string'e çevir
+                // 🔹 JSON verisini oluştur
                 var orderJson = JsonSerializer.Serialize(order, new JsonSerializerOptions { WriteIndented = true });
 
-                // Uygulamanın çalıştığı dizin içine "orders" klasörü oluştur (yoksa)
-                string basePath = Path.Combine(Directory.GetCurrentDirectory(), "orders");
+                // 🔹 savehere.txt dosyasının yolu
+                string filePath = Path.Combine(Directory.GetCurrentDirectory(), "savehere.txt");
 
-                Directory.CreateDirectory(basePath);
+                // 🔹 Dosyaya yaz (üstüne ekle)
+                await System.IO.File.AppendAllTextAsync(filePath, $"\n\n--- Yeni Sipariş ---\n{orderJson}\n");
 
-                // Dosya adını oluştur
-                string fileName = $"Order_{order.Code}_{DateTime.Now:yyyyMMdd_HHmmss}.txt";
-                string fullPath = Path.Combine(basePath, fileName);
+                Console.WriteLine($"✅ Sipariş savehere.txt dosyasına yazıldı: {filePath}");
 
-                // Dosyaya yaz
-                await System.IO.File.WriteAllTextAsync(fullPath, orderJson);
-
-                Console.WriteLine($"✅ Sipariş dosyaya yazıldı: {fullPath}");
-
-                // Delivery Hero'ya başarılı yanıt dön
                 return Ok(new
                 {
                     remoteResponse = new
@@ -57,8 +50,6 @@ namespace PluginTest.Controllers
             }
             catch (Exception ex)
             {
-                // Hata oluşursa logla ve 500 dön
-                Console.WriteLine($"❌ Hata oluştu: {ex.Message}");
                 return StatusCode(500, $"Dosyaya yazarken hata oluştu: {ex.Message}");
             }
         }
