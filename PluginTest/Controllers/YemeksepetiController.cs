@@ -18,7 +18,12 @@ namespace PluginTest.Controllers
         {
             return Ok("Yemeksepeti plugin aktif.");
         }
-
+        [HttpGet("testlog")]
+        public IActionResult TestLog()
+        {
+            Console.WriteLine("✅ Console log testi çalışıyor.");
+            return Ok("Log gönderildi.");
+        }
         // Yemeksepeti sipariş gönderimi
 
         [HttpPost("order")]
