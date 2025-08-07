@@ -33,7 +33,8 @@ namespace PluginTest.Controllers
                 var orderJson = JsonSerializer.Serialize(order, new JsonSerializerOptions { WriteIndented = true });
 
                 // Uygulamanın çalıştığı dizin içine "orders" klasörü oluştur (yoksa)
-                string basePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "orders");
+                string basePath = Path.Combine(Directory.GetCurrentDirectory(), "orders");
+
                 Directory.CreateDirectory(basePath);
 
                 // Dosya adını oluştur
