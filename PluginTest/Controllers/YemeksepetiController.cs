@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -165,7 +166,7 @@ namespace PluginTest.Controllers
             {
                 var chainCode = "1X7UTqDJ"; // Örnek kod, gerçek kodu buraya girin
 
-                client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
+              //  client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
 
 
 
@@ -173,7 +174,7 @@ namespace PluginTest.Controllers
                 //         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 var url = $"https://integration-middleware-tr.me.restaurant-partners.com/v2/order/status/{orderToken}";
 
-                //    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                   client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 var orderStatusRequest = new OrderStatusUpdateRequest
                 {
                     acceptanceTime = "2016-10-05T00:00:00+05:00",
