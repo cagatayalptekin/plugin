@@ -33,6 +33,8 @@ namespace PluginTest.Controllers
         public IActionResult PostOrder([FromRoute] string remoteId, [FromBody] YemeksepetiOrderModel order)
         {
             Console.WriteLine("Siparişi Gördüm");
+            Console.WriteLine("buraya girdim");
+            Console.WriteLine(order);
             // 1. Yetkilendirme (Authorization)
             // JWT Auth kontrolü burada yapılmalıdır.
             // Middleware'de halledilebilir.
@@ -82,10 +84,10 @@ namespace PluginTest.Controllers
             // 1. Yetkilendirme (Authorization)
             // JWT Auth kontrolü burada yapılmalıdır.
             // Middleware'de halledilebilir.
-
+            Console.WriteLine(order);
             // 2. Hızlı Doğrulama (Quick Validation)
             // Gelen verinin basic olarak geçerli olup olmadığını kontrol edin.
-          
+
 
             // 3. Siparişi Kaydetme (Persist the Order)
             // Veritabanına veya başka bir kalıcı depolama alanına siparişi kaydedin.
