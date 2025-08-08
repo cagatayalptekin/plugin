@@ -29,102 +29,293 @@ namespace PluginTest.Controllers
         private const string ExpectedApiKey = "X7kL93-fgh8W-Zmq0P-Ak2N9";
 
         // 1) Senin verdiğin webhook (x-api-key + basit body de gelse kabul)
-        [HttpPost("order")]
-        public async Task<IActionResult> ReceiveOrderSimplified([FromBody] object body)
+        [HttpPost("order/{remoteId}")]
+        public IActionResult PostOrder([FromRoute] string remoteId, [FromBody] YemeksepetiOrderModel order)
         {
-            Console.WriteLine("🟡 HIT /api/yemeksepeti/order");
+            Console.WriteLine("Siparişi Gördüm");
+            // 1. Yetkilendirme (Authorization)
+            // JWT Auth kontrolü burada yapılmalıdır.
+            // Middleware'de halledilebilir.
 
-            // x-api-key doğrula (ancak varsa zorla)
-            if (!Request.Headers.TryGetValue("x-api-key", out var apiKey) || apiKey != ExpectedApiKey)
+            // 2. Hızlı Doğrulama (Quick Validation)
+            // Gelen verinin basic olarak geçerli olup olmadığını kontrol edin.
+            if (order == null || string.IsNullOrEmpty(order.token) || string.IsNullOrEmpty(remoteId))
             {
-                Console.WriteLine("❌ x-api-key invalid/missing");
-                return Unauthorized("API key hatalı");
+                // Eğer istek gövdesi veya kritik alanlar eksikse 400 Bad Request döndürün.
+                return BadRequest(new { error = "Invalid request payload." });
             }
 
-            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = true });
-            var file = Path.Combine(Directory.GetCurrentDirectory(), "savehere.txt");
-            await System.IO.File.AppendAllTextAsync(file, $"\n\n--- Yeni Sipariş (YS Basit) ---\n{json}\n");
-            Console.WriteLine("💾 savehere.txt yazıldı");
+            // 3. Siparişi Kaydetme (Persist the Order)
+            // Veritabanına veya başka bir kalıcı depolama alanına siparişi kaydedin.
+            // Bu işlem genellikle bir servis katmanı (service layer) tarafından yapılır.
+            try
+            {
+                // Örneğin: _orderService.SaveOrder(order, remoteId);
+                // Burada siparişin kaydedilmesi için gerekli kodlar yer alacak.
 
-            return Ok(new { status = "ok" });
+                // 4. Sipariş Tipini Belirleme (Identify Order Type)
+                string orderType = GetOrderType(order);
+                // Sipariş tipine göre farklı işlemler yapılabilir.
+
+                // 5. Asenkron İşleme (Asynchronous Processing)
+                // Siparişi kaydettikten sonra, asıl işleme (mutfağa gönderme, stok kontrolü vb.)
+                // asenkron olarak devam edin. Bu sayede HTTP isteği hemen yanıtlanmış olur.
+                // Örneğin: Task.Run(() => _orderProcessingService.ProcessOrderAsync(order));
+            }
+            catch (Exception ex)
+            {
+                // Kaydetme sırasında bir hata oluşursa 500 Internal Server Error döndürün.
+                // Middleware'de global hata yönetimi de kullanılabilir.
+                return StatusCode(500, new { error = "An internal server error occurred.", details = ex.Message });
+            }
+
+            // 6. Başarılı Yanıt (Acknowledge Order)
+            // Her şey yolundaysa, siparişin alındığını belirten başarılı bir yanıt döndürün.
+            // Dokümantasyonda belirtildiği gibi 200 veya 202 kullanılabilir.
+            // 202 Accepted, asenkron işlemin başlatıldığını belirtmek için daha uygundur.
+            return Accepted(new { remoteResponse = new { remoteOrderId = $"YEMEKSEPETI_ORDER_{order.code}" } });
         }
-
-        // 2) Standart DH endpoint (Bearer varsa kabul et; body büyük şema)
-        [HttpPost("/order/{remoteId}")]
-        public async Task<IActionResult> ReceiveOrderStandard(string remoteId, [FromBody] object body)
+        [HttpPost("order")]
+        public IActionResult PostOrder([FromBody] YemeksepetiOrderModel order)
         {
-            Console.WriteLine($"🟡 HIT /order/{remoteId}");
+            Console.WriteLine("Siparişi Gördüm");
+            // 1. Yetkilendirme (Authorization)
+            // JWT Auth kontrolü burada yapılmalıdır.
+            // Middleware'de halledilebilir.
 
-            // Bearer varsa logla (zorunlu kılmak istersen burada kontrol et)
-            var auth = Request.Headers.Authorization.ToString();
-            Console.WriteLine($"🔐 Authorization: {auth}");
+            // 2. Hızlı Doğrulama (Quick Validation)
+            // Gelen verinin basic olarak geçerli olup olmadığını kontrol edin.
+          
 
-            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = true });
-            var file = Path.Combine(Directory.GetCurrentDirectory(), "savehere.txt");
-            await System.IO.File.AppendAllTextAsync(file, $"\n\n--- Yeni Sipariş (DH Standart) ---\n{json}\n");
-            Console.WriteLine("💾 savehere.txt yazıldı");
+            // 3. Siparişi Kaydetme (Persist the Order)
+            // Veritabanına veya başka bir kalıcı depolama alanına siparişi kaydedin.
+            // Bu işlem genellikle bir servis katmanı (service layer) tarafından yapılır.
+            try
+            {
+                // Örneğin: _orderService.SaveOrder(order, remoteId);
+                // Burada siparişin kaydedilmesi için gerekli kodlar yer alacak.
 
-            // DH beklenen acknowledge formatı
-            // body içinden token'ı parse etmek yerine dummy döndük; istersen token'ı JsonDocument ile çekebiliriz.
-            return Ok(new { remoteResponse = new { remoteOrderId = $"POS_{remoteId}_ORDER_ACK" } });
+                // 4. Sipariş Tipini Belirleme (Identify Order Type)
+                string orderType = GetOrderType(order);
+                // Sipariş tipine göre farklı işlemler yapılabilir.
+
+                // 5. Asenkron İşleme (Asynchronous Processing)
+                // Siparişi kaydettikten sonra, asıl işleme (mutfağa gönderme, stok kontrolü vb.)
+                // asenkron olarak devam edin. Bu sayede HTTP isteği hemen yanıtlanmış olur.
+                // Örneğin: Task.Run(() => _orderProcessingService.ProcessOrderAsync(order));
+            }
+            catch (Exception ex)
+            {
+                // Kaydetme sırasında bir hata oluşursa 500 Internal Server Error döndürün.
+                // Middleware'de global hata yönetimi de kullanılabilir.
+                return StatusCode(500, new { error = "An internal server error occurred.", details = ex.Message });
+            }
+
+            // 6. Başarılı Yanıt (Acknowledge Order)
+            // Her şey yolundaysa, siparişin alındığını belirten başarılı bir yanıt döndürün.
+            // Dokümantasyonda belirtildiği gibi 200 veya 202 kullanılabilir.
+            // 202 Accepted, asenkron işlemin başlatıldığını belirtmek için daha uygundur.
+            return Accepted(new { remoteResponse = new { remoteOrderId = $"YEMEKSEPETI_ORDER_{order.code}" } });
+        }
+        // Dokümantasyondaki JavaScript fonksiyonuna benzer bir C# metodu
+        private string GetOrderType(YemeksepetiOrderModel order)
+        {
+            if (order.expeditionType == "pickup")
+            {
+                return "Pickup";
+            }
+
+            if (order.expeditionType == "delivery")
+            {
+                if (order.delivery?.riderPickupTime == null)
+                {
+                    return "VendorDelivery";
+                }
+                return "OwnDelivery";
+            }
+
+            return "Unknown";
         }
 
     }
     public class YemeksepetiOrderModel
     {
-        public string? OrderId { get; set; }
-        public string? CustomerName { get; set; }
-        public string? Phone { get; set; }
-        public string? Address { get; set; }
-        public List<string?> Items { get; set; }
-        public string? Note { get; set; }
+        // Required fields
+        public string token { get; set; }
+        public string code { get; set; }
+        public Comments comments { get; set; }
+        public DateTime createdAt { get; set; }
+        public Customer customer { get; set; }
+        public List<Discount> discounts { get; set; }
+        public string expeditionType { get; set; }
+        public DateTime expiryDate { get; set; }
+        public LocalInfo localInfo { get; set; }
+        public Payment payment { get; set; }
+        public bool test { get; set; }
+        public bool preOrder { get; set; }
+        public PlatformRestaurant platformRestaurant { get; set; }
+        public Price price { get; set; }
+        public List<Product> products { get; set; }
+        public string corporateTaxId { get; set; }
+        public CallbackUrls callbackUrls { get; set; }
+
+        // Optional fields
+        public Delivery delivery { get; set; }
+        public ExtraParameters extraParameters { get; set; }
+        public InvoicingInformation invoicingInformation { get; set; }
+        public string shortCode { get; set; }
+        public Pickup pickup { get; set; }
+        public PreparationTimeAdjustments preparationTimeAdjustments { get; set; }
     }
-    public class DeliveryHeroOrderModel
+
+    public class Comments
     {
-        public string? Token { get; set; }
-        public string? Code { get; set; }
-        public Comments? Comments { get; set; }
-        public DateTime? CreatedAt { get; set; }
-        public Customer? Customer { get; set; }
-        public Delivery? Delivery { get; set; }
-        public List<Discount>? Discounts { get; set; }
-        public string? ExpeditionType { get; set; }
-        public DateTime? ExpiryDate { get; set; }
-        public ExtraParameters? ExtraParameters { get; set; }
-        public InvoicingInformation? InvoicingInformation { get; set; }
-        public LocalInfo? LocalInfo { get; set; }
-        public Payment? Payment { get; set; }
-        public bool? Test { get; set; }
-        public string? ShortCode { get; set; }
-        public bool? PreOrder { get; set; }
-        public Pickup? Pickup { get; set; }
-        public PlatformRestaurant? PlatformRestaurant { get; set; }
-        public Price? Price { get; set; }
-        public List<Product>? Products { get; set; }
-        public string? CorporateTaxId { get; set; }
-        public CallbackUrls? CallbackUrls { get; set; }
+        public string customerComment { get; set; }
     }
-    public class Comments { public string? CustomerComment { get; set; } }
-    public class Customer { public string Email { get; set; } public string? FirstName { get; set; } public string? LastName { get; set; } public string? MobilePhone { get; set; } }
-    public class Delivery { public Address? Address { get; set; } public DateTime? ExpectedDeliveryTime { get; set; } public bool? ExpressDelivery { get; set; } public DateTime? RiderPickupTime { get; set; } }
-    public class Address { /* detaylar varsa buraya eklenir */ }
-    public class Discount { /* örnek varsa doldururum */ }
-    public class ExtraParameters { public string? Property1 { get; set; } public string? Property2 { get; set; } }
-    public class InvoicingInformation { public string? CarrierType { get; set; } public string? CarrierValue { get; set; } }
-    public class LocalInfo { public string? CountryCode { get; set; } public string? CurrencySymbol { get; set; } public string? Platform { get; set; } public string? PlatformKey { get; set; } }
-    public class Payment { public string? Status { get; set; } public string? Type { get; set; } }
-    public class PlatformRestaurant { public string? Id { get; set; } }
-    public class Price { public List<object>? DeliveryFees { get; set; } public string? GrandTotal { get; set; } public string? PayRestaurant { get; set; } public string? RiderTip { get; set; } public string? TotalNet { get; set; } public string? VatTotal { get; set; } public string? CollectFromCustomer { get; set; } }
-    public class Product { /* ürün modeli */ }
-    public class Pickup { }
+
+    public class Customer
+    {
+        public string email { get; set; }
+        public string firstName { get; set; }
+        public string lastName { get; set; }
+        public string mobilePhone { get; set; }
+        public List<string> flags { get; set; }
+    }
+
+    public class Delivery
+    {
+        public Address address { get; set; }
+        public DateTime expectedDeliveryTime { get; set; }
+        public bool expressDelivery { get; set; }
+        public DateTime? riderPickupTime { get; set; }
+    }
+
+    public class Address
+    {
+        public string postcode { get; set; }
+        public string city { get; set; }
+        public string street { get; set; }
+        public string number { get; set; }
+    }
+
+    public class Discount
+    {
+        public string name { get; set; }
+        public string amount { get; set; }
+        public List<Sponsorship> sponsorships { get; set; }
+    }
+
+    public class Sponsorship
+    {
+        public string sponsor { get; set; }
+        public string amount { get; set; }
+    }
+
+    public class ExtraParameters
+    {
+        public Dictionary<string, string> properties { get; set; }
+    }
+
+    public class InvoicingInformation
+    {
+        public string carrierType { get; set; }
+        public string carrierValue { get; set; }
+    }
+
+    public class LocalInfo
+    {
+        public string countryCode { get; set; }
+        public string currencySymbol { get; set; }
+        public string platform { get; set; }
+        public string platformKey { get; set; }
+    }
+
+    public class Payment
+    {
+        public string status { get; set; }
+        public string type { get; set; }
+    }
+
+    public class Pickup
+    {
+        public DateTime? pickupTime { get; set; }
+        public string pickupCode { get; set; }
+    }
+
+    public class PlatformRestaurant
+    {
+        public string id { get; set; }
+    }
+
+    public class Price
+    {
+        // Required fields
+        public List<DeliveryFee> deliveryFees { get; set; }
+        public string grandTotal { get; set; }
+        public string totalNet { get; set; }
+        public string vatTotal { get; set; }
+
+        // Optional fields
+        public string payRestaurant { get; set; }
+        public string riderTip { get; set; }
+        public string collectFromCustomer { get; set; }
+    }
+
+    public class DeliveryFee
+    {
+        public string name { get; set; }
+        public double value { get; set; }
+    }
+
+    public class Product
+    {
+        public string categoryName { get; set; }
+        public string name { get; set; }
+        public string paidPrice { get; set; }
+        public string quantity { get; set; }
+        public string remoteCode { get; set; }
+        public List<SelectedTopping> selectedToppings { get; set; }
+        public string unitPrice { get; set; }
+        public string comment { get; set; }
+        public string id { get; set; }
+        public string itemUnavailabilityHandling { get; set; }
+        public Variation variation { get; set; }
+        public List<Discount> discounts { get; set; }
+    }
+
+    public class SelectedTopping
+    {
+        public List<object> children { get; set; }
+        public string name { get; set; }
+        public string price { get; set; }
+        public int quantity { get; set; }
+        public string id { get; set; }
+        public string remoteCode { get; set; }
+        public string type { get; set; }
+        public string itemUnavailabilityHandling { get; set; }
+        public List<Discount> discounts { get; set; }
+    }
+
+    public class Variation
+    {
+        public string name { get; set; }
+    }
+
+    public class PreparationTimeAdjustments
+    {
+        public DateTime maxPickUpTimestamp { get; set; }
+        public DateTime minPickupTimestamp { get; set; }
+        public List<int> preparationTimeChangeIntervalsInMinutes { get; set; }
+    }
+
     public class CallbackUrls
     {
-        public string? OrderAcceptedUrl { get; set; }
-        public string? OrderRejectedUrl { get; set; }
-        public string? OrderPickedUpUrl { get; set; }
-        public string? OrderPreparedUrl { get; set; }
-        public string? OrderProductModificationUrl { get; set; }
-        public string? OrderPreparationTimeAdjustmentUrl { get; set; }
+        public string orderAcceptedUrl { get; set; }
+        public string orderRejectedUrl { get; set; }
+        public string orderPickedUpUrl { get; set; }
+        public string orderPreparedUrl { get; set; }
+        public string orderProductModificationUrl { get; set; }
+        public string orderPreparationTimeAdjustmentUrl { get; set; }
     }
 
 
