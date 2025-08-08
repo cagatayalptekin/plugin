@@ -1,5 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Xml.Linq;
 
 namespace PluginTest.Controllers
@@ -8,6 +10,8 @@ namespace PluginTest.Controllers
     [Route("api/yemeksepeti")]
     public class YemeksepetiController : Controller
     {
+        public List<string> OrderIdentifiers;
+        public string token { get; set; }
         public IActionResult Index()
         {
             return View();
@@ -121,8 +125,89 @@ namespace PluginTest.Controllers
             // Her şey yolundaysa, siparişin alındığını belirten başarılı bir yanıt döndürün.
             // Dokümantasyonda belirtildiği gibi 200 veya 202 kullanılabilir.
             // 202 Accepted, asenkron işlemin başlatıldığını belirtmek için daha uygundur.
+            UpdateStatus(order.token);// Asenkron metodu bekletiyoruz, gerçek uygulamada Task.Run kullanılabilir.
             return Accepted(new { remoteResponse = new { remoteOrderId = $"YEMEKSEPETI_ORDER_{order.code}" } });
         }
+
+       
+        public async Task<IActionResult> UpdateStatus(string orderToken)
+        {
+
+            //      remoteId = "agrabt123";
+            using (HttpClient client = new HttpClient())
+            {
+
+                var content = new FormUrlEncodedContent(new[]
+            {
+    new KeyValuePair<string, string>("username", "me-tr-plugin-agra-bilgi-teknolojileri-sanayi-ve-ticaret-limited-sirketi-001"),
+    new KeyValuePair<string, string>("password", "KIOLr6UqHh"),
+    new KeyValuePair<string, string>("grant_type", "client_credentials")
+});
+
+                var response = await client.PostAsync("https://integration-middleware-tr.me.restaurant-partners.com/v2/login", content);
+
+                if (!response.IsSuccessStatusCode)
+                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
+
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                // Token modelini deserialize et
+                var loginResult = JsonSerializer.Deserialize<YemeksepetiLoginResponse>(responseBody);
+                token = loginResult?.access_token; // token field'a ata
+
+
+            }
+
+
+
+            using (HttpClient client = new HttpClient())
+            {
+                var chainCode = "1X7UTqDJ"; // Örnek kod, gerçek kodu buraya girin
+
+                client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
+
+
+
+              
+                //         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                var url = $"https://integration-middleware-tr.me.restaurant-partners.com/v2/order/status/{orderToken}";
+
+                //    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                var orderStatusRequest = new OrderStatusUpdateRequest
+                {
+                    acceptanceTime = "2016-10-05T00:00:00+05:00",
+                    status = "order_accepted",
+               
+                };
+
+                // Serialize the object to JSON
+                string jsonPayload = JsonSerializer.Serialize(orderStatusRequest);
+
+                // Prepare the content to send in the POST request (application/json)
+                var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+                // Send the POST request asynchronously
+                var response = await client.PostAsync(url, content);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine("Request successful.");
+                    var responseContent = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine("Response: " + responseContent);
+                }
+                else
+                {
+                    Console.WriteLine($"Request failed. Status Code: {response.StatusCode}");
+                }
+
+            
+                return Ok();
+            }
+        }
+
+
+
+
         // Dokümantasyondaki JavaScript fonksiyonuna benzer bir C# metodu
         private string GetOrderType(YemeksepetiOrderModel order)
         {
@@ -143,6 +228,26 @@ namespace PluginTest.Controllers
             return "Unknown";
         }
 
+    }
+ 
+
+    public class Modifications
+    {
+        public List<object> Products { get; set; }
+    }
+    public class OrderIdentifiersResponse
+    {
+        [JsonPropertyName("orderIdentifiers")]
+        public List<string> OrderIdentifiers { get; set; }
+
+        [JsonPropertyName("count")]
+        public int Count { get; set; }
+    }
+    public class YemeksepetiLoginResponse
+    {
+        public string access_token { get; set; }
+        public string token_type { get; set; }
+        public int expires_in { get; set; }
     }
     public class YemeksepetiOrderModel
     {
@@ -323,7 +428,14 @@ namespace PluginTest.Controllers
         public string? orderProductModificationUrl { get; set; }
         public string? orderPreparationTimeAdjustmentUrl { get; set; }
     }
+    public class OrderStatusUpdateRequest
+    {
+        public string status { get; set; }                    // "order_accepted" | "order_rejected" | "order_picked_up"
+        public string acceptanceTime { get; set; }            // ISO-8601, required for order_accepted
+        public string? remoteOrderId { get; set; }             // your POS-side order id (optional but recommended)
+        public Modifications? modifications { get; set; }      // optional (only with order_accepted)
+    }
 
-
+  
 }
 
