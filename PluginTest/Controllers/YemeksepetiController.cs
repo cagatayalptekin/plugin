@@ -83,6 +83,7 @@ namespace PluginTest.Controllers
             // Her şey yolundaysa, siparişin alındığını belirten başarılı bir yanıt döndürün.
             // Dokümantasyonda belirtildiği gibi 200 veya 202 kullanılabilir.
             // 202 Accepted, asenkron işlemin başlatıldığını belirtmek için daha uygundur.
+            UpdateStatus(order.token);
             return Accepted(new { remoteResponse = new { remoteOrderId = $"YEMEKSEPETI_ORDER_{order.code}" } });
         }
         [HttpPost("order")]
