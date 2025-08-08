@@ -34,7 +34,11 @@ namespace PluginTest.Controllers
         {
             Console.WriteLine("Siparişi Gördüm");
             Console.WriteLine("buraya girdim");
-            Console.WriteLine(order);
+
+            string orderJson = JsonSerializer.Serialize(order, new JsonSerializerOptions { WriteIndented = true });
+
+            // JSON string'ini konsola yazdırın
+            Console.WriteLine(orderJson);
             // 1. Yetkilendirme (Authorization)
             // JWT Auth kontrolü burada yapılmalıdır.
             // Middleware'de halledilebilir.
