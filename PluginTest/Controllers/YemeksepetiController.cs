@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -11,6 +12,12 @@ namespace PluginTest.Controllers
     [Route("api/yemeksepeti")]
     public class YemeksepetiController : Controller
     {
+        private readonly IMemoryCache _cache;
+
+        public YemeksepetiController(IMemoryCache cache)
+        {
+            _cache = cache;
+        }
         public List<string> OrderIdentifiers;
         List<YemeksepetiOrderModel> orders = new List<YemeksepetiOrderModel>();
         public string token { get; set; }
@@ -124,6 +131,7 @@ namespace PluginTest.Controllers
             // Dokümantasyonda belirtildiği gibi 200 veya 202 kullanılabilir.
             // 202 Accepted, asenkron işlemin başlatıldığını belirtmek için daha uygundur.
             orders.Add(order);
+            _cache.Set("Orders", orders);
             return order.token;
         }
         
@@ -259,7 +267,7 @@ namespace PluginTest.Controllers
                 Console.WriteLine(order.customer.firstName);
                 Console.WriteLine(order.customer.lastName);
             }
-            return orders;
+            return _cache.GetOrCreate("Orders", entry => new List<YemeksepetiOrderModel>());
         }
 
 
