@@ -126,45 +126,7 @@ namespace PluginTest.Controllers
             orders.Add(order);
             return order.token;
         }
-        [HttpPost("order")]
-        public string PostOrder([FromBody] YemeksepetiOrderModel order)
-        {
-            Console.WriteLine("Siparişi Gördüm");
-            // 1. Yetkilendirme (Authorization)
-            // JWT Auth kontrolü burada yapılmalıdır.
-            // Middleware'de halledilebilir.
-            Console.WriteLine(order);
-            // 2. Hızlı Doğrulama (Quick Validation)
-            // Gelen verinin basic olarak geçerli olup olmadığını kontrol edin.
-
-
-            // 3. Siparişi Kaydetme (Persist the Order)
-            // Veritabanına veya başka bir kalıcı depolama alanına siparişi kaydedin.
-            // Bu işlem genellikle bir servis katmanı (service layer) tarafından yapılır.
-            try
-            {
-                // Örneğin: _orderService.SaveOrder(order, remoteId);
-                // Burada siparişin kaydedilmesi için gerekli kodlar yer alacak.
-
-                // 4. Sipariş Tipini Belirleme (Identify Order Type)
-                string orderType = GetOrderType(order);
-                // Sipariş tipine göre farklı işlemler yapılabilir.
-
-                // 5. Asenkron İşleme (Asynchronous Processing)
-                // Siparişi kaydettikten sonra, asıl işleme (mutfağa gönderme, stok kontrolü vb.)
-                // asenkron olarak devam edin. Bu sayede HTTP isteği hemen yanıtlanmış olur.
-                // Örneğin: Task.Run(() => _orderProcessingService.ProcessOrderAsync(order));
-            }
-            catch (Exception ex)
-            {
-                // Kaydetme sırasında bir hata oluşursa 500 Internal Server Error döndürün.
-                // Middleware'de global hata yönetimi de kullanılabilir.
-                return ex.Message;
-            }
-
-           
-            return order.token;
-        }
+        
 
         [HttpPost("update-status/{code}/{status}")]
         public async Task<IActionResult> UpdateStatus([FromRoute]string code, [FromRoute] string status)
@@ -292,6 +254,11 @@ namespace PluginTest.Controllers
         public async Task<List<YemeksepetiOrderModel>> GetOrders()
         {
             Console.WriteLine("im here get orders");
+            foreach (var order in orders)
+            {
+                Console.WriteLine(order.customer.firstName);
+                Console.WriteLine(order.customer.lastName);
+            }
             return orders;
         }
 
