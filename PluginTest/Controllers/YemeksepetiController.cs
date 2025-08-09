@@ -291,6 +291,7 @@ namespace PluginTest.Controllers
         [HttpPost("get-orders")]
         public async Task<List<YemeksepetiOrderModel>> GetOrders()
         {
+            Console.WriteLine("im here get orders");
             return orders;
         }
 
