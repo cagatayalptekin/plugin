@@ -1,0 +1,89 @@
+{
+  "Files": [
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\3rdpartylicenses.txt",
+      "PackagePath": "staticwebassets\\3rdpartylicenses.txt"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\background.jpg",
+      "PackagePath": "staticwebassets\\assets\\background.jpg"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\logo.png",
+      "PackagePath": "staticwebassets\\assets\\logo.png"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\loxgo.png",
+      "PackagePath": "staticwebassets\\assets\\loxgo.png"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\loxxgo.png",
+      "PackagePath": "staticwebassets\\assets\\loxxgo.png"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\restaurant_icon.png",
+      "PackagePath": "staticwebassets\\assets\\restaurant_icon.png"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\index.html",
+      "PackagePath": "staticwebassets\\index.html"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\main-276UK6CS.js",
+      "PackagePath": "staticwebassets\\main-276UK6CS.js"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\primeicons-4GST5W3O.woff2",
+      "PackagePath": "staticwebassets\\media\\primeicons-4GST5W3O.woff2"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\primeicons-DHQU4SEP.svg",
+      "PackagePath": "staticwebassets\\media\\primeicons-DHQU4SEP.svg"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\primeicons-GEFHGEHP.ttf",
+      "PackagePath": "staticwebassets\\media\\primeicons-GEFHGEHP.ttf"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\primeicons-P53SE5CV.woff",
+      "PackagePath": "staticwebassets\\media\\primeicons-P53SE5CV.woff"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\primeicons-RSSEDYLY.eot",
+      "PackagePath": "staticwebassets\\media\\primeicons-RSSEDYLY.eot"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\polyfills-B6TNHZQ6.js",
+      "PackagePath": "staticwebassets\\polyfills-B6TNHZQ6.js"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\prerendered-routes.json",
+      "PackagePath": "staticwebassets\\prerendered-routes.json"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\scripts-IGA7JNQP.js",
+      "PackagePath": "staticwebassets\\scripts-IGA7JNQP.js"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\styles-DA72KQPQ.css",
+      "PackagePath": "staticwebassets\\styles-DA72KQPQ.css"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.PluginTest.Microsoft.AspNetCore.StaticWebAssets.props",
+      "PackagePath": "build\\Microsoft.AspNetCore.StaticWebAssets.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.build.PluginTest.props",
+      "PackagePath": "build\\PluginTest.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildMultiTargeting.PluginTest.props",
+      "PackagePath": "buildMultiTargeting\\PluginTest.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildTransitive.PluginTest.props",
+      "PackagePath": "buildTransitive\\PluginTest.props"
+    }
+  ],
+  "ElementsToRemove": []
+}

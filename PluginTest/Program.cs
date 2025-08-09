@@ -1,4 +1,4 @@
-
+﻿
 namespace PluginTest
 {
     public class Program
@@ -29,8 +29,11 @@ namespace PluginTest
 
             app.UseAuthorization();
 
+            app.UseDefaultFiles();     
+            app.UseStaticFiles();      
 
             app.MapControllers();
+            app.MapFallbackToFile("index.html"); // /api dışındaki tüm yollar Angular'a düşer
 
             app.Run();
         }
