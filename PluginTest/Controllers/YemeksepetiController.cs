@@ -12,6 +12,7 @@ namespace PluginTest.Controllers
     public class YemeksepetiController : Controller
     {
         public List<string> OrderIdentifiers;
+        List<YemeksepetiOrderModel> orders = new List<YemeksepetiOrderModel>();
         public string token { get; set; }
         public IActionResult Index()
         {
@@ -33,9 +34,47 @@ namespace PluginTest.Controllers
 
         private const string ExpectedApiKey = "X7kL93-fgh8W-Zmq0P-Ak2N9";
 
+
+
+
+        [HttpPost("auth/login")]
+        public async Task<IActionResult> Login()
+        {
+            using (HttpClient client = new HttpClient())
+            {
+
+                var content = new FormUrlEncodedContent(new[]
+            {
+            new KeyValuePair<string, string>("username", "me-tr-plugin-agra-bilgi-teknolojileri-sanayi-ve-ticaret-limited-sirketi-001"),
+            new KeyValuePair<string, string>("password", "KIOLr6UqHh"),
+            new KeyValuePair<string, string>("grant_type", "client_credentials")
+        });
+
+                var response = await client.PostAsync("https://integration-middleware-tr.me.restaurant-partners.com/v2/login", content);
+
+                if (!response.IsSuccessStatusCode)
+                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
+
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                // Token modelini deserialize et
+                var loginResult = JsonSerializer.Deserialize<YemeksepetiLoginResponse>(responseBody);
+                token = loginResult?.access_token; // token field'a ata
+
+                return Ok(new { token }); // test için geri de döndürülüyor
+            }
+        }
+
+
+
+
+
+
+
+
         // 1) Senin verdiğin webhook (x-api-key + basit body de gelse kabul)
         [HttpPost("order/{remoteId}")]
-        public IActionResult PostOrder([FromRoute] string remoteId, [FromBody] YemeksepetiOrderModel order)
+        public string PostOrder([FromRoute] string remoteId, [FromBody] YemeksepetiOrderModel order)
         {
             Console.WriteLine("Siparişi Gördüm");
             Console.WriteLine("buraya girdim");
@@ -53,7 +92,7 @@ namespace PluginTest.Controllers
             if (order == null || string.IsNullOrEmpty(order.token) || string.IsNullOrEmpty(remoteId))
             {
                 // Eğer istek gövdesi veya kritik alanlar eksikse 400 Bad Request döndürün.
-                return BadRequest(new { error = "Invalid request payload." });
+                return "Bad Request: Order data is invalid.";
             }
 
             // 3. Siparişi Kaydetme (Persist the Order)
@@ -77,18 +116,18 @@ namespace PluginTest.Controllers
             {
                 // Kaydetme sırasında bir hata oluşursa 500 Internal Server Error döndürün.
                 // Middleware'de global hata yönetimi de kullanılabilir.
-                return StatusCode(500, new { error = "An internal server error occurred.", details = ex.Message });
+                return ex.Message;
             }
 
             // 6. Başarılı Yanıt (Acknowledge Order)
             // Her şey yolundaysa, siparişin alındığını belirten başarılı bir yanıt döndürün.
             // Dokümantasyonda belirtildiği gibi 200 veya 202 kullanılabilir.
             // 202 Accepted, asenkron işlemin başlatıldığını belirtmek için daha uygundur.
-            UpdateStatus(order.token);
-            return Accepted(new { remoteResponse = new { remoteOrderId = $"YEMEKSEPETI_ORDER_{order.code}" } });
+            orders.Add(order);
+            return order.token;
         }
         [HttpPost("order")]
-        public IActionResult PostOrder([FromBody] YemeksepetiOrderModel order)
+        public string PostOrder([FromBody] YemeksepetiOrderModel order)
         {
             Console.WriteLine("Siparişi Gördüm");
             // 1. Yetkilendirme (Authorization)
@@ -120,19 +159,15 @@ namespace PluginTest.Controllers
             {
                 // Kaydetme sırasında bir hata oluşursa 500 Internal Server Error döndürün.
                 // Middleware'de global hata yönetimi de kullanılabilir.
-                return StatusCode(500, new { error = "An internal server error occurred.", details = ex.Message });
+                return ex.Message;
             }
 
-            // 6. Başarılı Yanıt (Acknowledge Order)
-            // Her şey yolundaysa, siparişin alındığını belirten başarılı bir yanıt döndürün.
-            // Dokümantasyonda belirtildiği gibi 200 veya 202 kullanılabilir.
-            // 202 Accepted, asenkron işlemin başlatıldığını belirtmek için daha uygundur.
-            UpdateStatus(order.token);// Asenkron metodu bekletiyoruz, gerçek uygulamada Task.Run kullanılabilir.
-            return Accepted(new { remoteResponse = new { remoteOrderId = $"YEMEKSEPETI_ORDER_{order.code}" } });
+           
+            return order.token;
         }
 
-       
-        public async Task<IActionResult> UpdateStatus(string orderToken)
+        [HttpPost("update-status/{code}/{status}")]
+        public async Task<IActionResult> UpdateStatus([FromRoute]string code, [FromRoute] string status)
         {
 
             //      remoteId = "agrabt123";
@@ -166,21 +201,43 @@ namespace PluginTest.Controllers
             {
                 var chainCode = "1X7UTqDJ"; // Örnek kod, gerçek kodu buraya girin
 
-              //  client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
+                //  client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
+                OrderStatusUpdateRequest orderStatusRequest;
 
-
-
+               var orderToken=orders.Where(x => x.code == code).FirstOrDefault()?.token;
               
                 //         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 var url = $"https://integration-middleware-tr.me.restaurant-partners.com/v2/order/status/{orderToken}";
 
                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                var orderStatusRequest = new OrderStatusUpdateRequest
+                if (status=="accepted")
                 {
-                    acceptanceTime = "2016-10-05T00:00:00+05:00",
-                    status = "order_accepted",
+                    orderStatusRequest = new OrderStatusUpdateRequest
+                    {
+                        acceptanceTime = "2016-10-05T00:00:00+05:00",
+                        status = "order_accepted",
+
+                    };
+                }
+                else if (status == "rejected")
+                {
+                      orderStatusRequest = new OrderStatusUpdateRequest
+                    {
+                        status = "order_rejected",
+                    };
+                }
+                else if (status == "pickedup")
+                {
+                      orderStatusRequest = new OrderStatusUpdateRequest
+                    {
+                        status = "order_picked_up",
+                    };
+                }
+                else
+                {
+                    return BadRequest("Invalid status provided.");
+                }
                
-                };
 
                 // Serialize the object to JSON
                 string jsonPayload = JsonSerializer.Serialize(orderStatusRequest);
@@ -230,18 +287,154 @@ namespace PluginTest.Controllers
             return "Unknown";
         }
 
-    }
- 
 
+        [HttpPost("get-orders")]
+        public async Task<List<YemeksepetiOrderModel>> GetOrders()
+        {
+            return orders;
+        }
+
+
+        [HttpPost("get-last-orders")]
+        public async Task<List<YemeksepetiOrderModel>> GetLastOrders()
+        {
+
+            //      remoteId = "agrabt123";
+            using (HttpClient client = new HttpClient())
+            {
+
+                var content = new FormUrlEncodedContent(new[]
+            {
+            new KeyValuePair<string, string>("username", "me-tr-plugin-agra-bilgi-teknolojileri-sanayi-ve-ticaret-limited-sirketi-001"),
+            new KeyValuePair<string, string>("password", "KIOLr6UqHh"),
+            new KeyValuePair<string, string>("grant_type", "client_credentials")
+        });
+
+                var response = await client.PostAsync("https://integration-middleware-tr.me.restaurant-partners.com/v2/login", content);
+
+                if (!response.IsSuccessStatusCode)
+                    Console.WriteLine("problem is" + response.StatusCode);
+
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                // Token modelini deserialize et
+                var loginResult = JsonSerializer.Deserialize<YemeksepetiLoginResponse>(responseBody);
+                token = loginResult?.access_token; // token field'a ata
+
+
+            }
+
+
+
+            using (HttpClient client = new HttpClient())
+            {
+                var chainCode = "1X7UTqDJ"; // Örnek kod, gerçek kodu buraya girin
+
+                //      client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
+
+                //         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                var url = $"https://integration-middleware-tr.me.restaurant-partners.com/v2/chains/1X7UTqDJ/orders/ids?status=accepted&pastNumberOfHours=3";
+
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                var response = await client.GetAsync(url);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+
+                    // _logger.LogError("Yemeksepeti OrderId GET hatası: {Error}", error);
+                    Console.WriteLine("problem is" + response.StatusCode);
+                }
+
+                var result = await response.Content.ReadAsStringAsync();
+
+                var ids = JsonSerializer.Deserialize<OrderIdentifiersResponse>(result,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                this.OrderIdentifiers = ids.Orders;
+                List<YemeksepetiOrderModel> orders = new List<YemeksepetiOrderModel>();
+                orders = await GetOrderDetails();
+                return orders;
+            }
+        }
+        public async Task<List<YemeksepetiOrderModel>> GetOrderDetails()
+        {
+            using (HttpClient client = new HttpClient())
+            {
+
+                var content = new FormUrlEncodedContent(new[]
+            {
+            new KeyValuePair<string, string>("username", "me-tr-plugin-agra-bilgi-teknolojileri-sanayi-ve-ticaret-limited-sirketi-001"),
+            new KeyValuePair<string, string>("password", "KIOLr6UqHh"),
+            new KeyValuePair<string, string>("grant_type", "client_credentials")
+        });
+
+                var response = await client.PostAsync("https://integration-middleware-tr.me.restaurant-partners.com/v2/login", content);
+
+                if (!response.IsSuccessStatusCode)
+                    Console.WriteLine("problem" + response.StatusCode);
+
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                // Token modelini deserialize et
+                var loginResult = JsonSerializer.Deserialize<YemeksepetiLoginResponse>(responseBody);
+                token = loginResult?.access_token; // token field'a ata
+
+
+            }
+            List<YemeksepetiOrderModel> orders = new List<YemeksepetiOrderModel>();
+            // 2) GET order details
+            foreach (var orderId in OrderIdentifiers)
+            {
+                using (var client = new HttpClient())
+                {
+                    var chainCode = "1X7UTqDJ"; // Örnek kod, gerçek kodu buraya girin
+
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                    var url = $"https://integration-middleware-tr.me.restaurant-partners.com/v2/chains/{chainCode}/orders/{orderId}";
+                    var resp = await client.GetAsync(url);
+                    var body = await resp.Content.ReadAsStringAsync();
+
+                    if (!resp.IsSuccessStatusCode)
+                        Console.WriteLine("problem" + resp.StatusCode);
+                    try
+                    {
+                        var rootObject = JsonSerializer.Deserialize<RootObject>(body);
+                        var order = rootObject.order;
+                        orders.Add(order);
+                    }
+                    catch (Exception e)
+                    {
+
+                        Console.WriteLine(e.Message);
+                    }
+
+
+                    // use `order` (save to DB, write to file, return, etc.)
+
+                }
+            }
+
+            return orders;
+        }
+
+
+
+    }
+
+    public class RootObject
+    {
+        public YemeksepetiOrderModel order { get; set; }
+    }
     public class Modifications
     {
         public List<object> Products { get; set; }
     }
     public class OrderIdentifiersResponse
     {
-        [JsonPropertyName("orderIdentifiers")]
-        public List<string> OrderIdentifiers { get; set; }
-
+        [JsonPropertyName("orders")]
+        public List<string> Orders { get; set; }
         [JsonPropertyName("count")]
         public int Count { get; set; }
     }

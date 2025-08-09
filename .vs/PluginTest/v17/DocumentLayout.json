@@ -86,8 +86,7 @@
               "RelativeToolTip": "PluginTest\\Properties\\launchSettings.json",
               "ViewState": "AQIAAAAAAAAAAAAAAAAAABIAAAAvAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
-              "WhenOpened": "2025-08-09T19:36:44.928Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-08-09T19:36:44.928Z"
             },
             {
               "$type": "Document",
@@ -99,21 +98,19 @@
               "RelativeToolTip": "PluginTest\\Program.cs",
               "ViewState": "AQIAAAcAAAAAAAAAAAAQwBgAAAANAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-08-09T19:33:54.108Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-08-09T19:33:54.108Z"
             },
             {
               "$type": "Document",
               "DocumentIndex": 3,
-              "Title": "PluginTest",
+              "Title": "PluginTest.csproj",
               "DocumentMoniker": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\PluginTest.csproj",
               "RelativeDocumentMoniker": "PluginTest\\PluginTest.csproj",
               "ToolTip": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\PluginTest.csproj",
               "RelativeToolTip": "PluginTest\\PluginTest.csproj",
               "ViewState": "AQIAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2025-08-09T19:32:48.312Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-08-09T19:32:48.312Z"
             },
             {
               "$type": "Document",
@@ -123,7 +120,7 @@
               "RelativeDocumentMoniker": "PluginTest\\Controllers\\YemeksepetiController.cs",
               "ToolTip": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\Controllers\\YemeksepetiController.cs",
               "RelativeToolTip": "PluginTest\\Controllers\\YemeksepetiController.cs",
-              "ViewState": "AQIAABIAAAAAAAAAAAAYwCAAAAAAAAAA",
+              "ViewState": "AQIAAMoAAAAAAAAAAADwv9cAAAAVAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2025-08-09T11:45:02.115Z",
               "EditorCaption": ""
