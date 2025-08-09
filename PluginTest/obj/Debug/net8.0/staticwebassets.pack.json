@@ -1,10 +1,6 @@
 {
   "Files": [
     {
-      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\3rdpartylicenses.txt",
-      "PackagePath": "staticwebassets\\3rdpartylicenses.txt"
-    },
-    {
       "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\background.jpg",
       "PackagePath": "staticwebassets\\assets\\background.jpg"
     },
@@ -29,8 +25,8 @@
       "PackagePath": "staticwebassets\\index.html"
     },
     {
-      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\main-276UK6CS.js",
-      "PackagePath": "staticwebassets\\main-276UK6CS.js"
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\main-ZJRAHK6A.js",
+      "PackagePath": "staticwebassets\\main-ZJRAHK6A.js"
     },
     {
       "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\primeicons-4GST5W3O.woff2",
@@ -55,10 +51,6 @@
     {
       "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\polyfills-B6TNHZQ6.js",
       "PackagePath": "staticwebassets\\polyfills-B6TNHZQ6.js"
-    },
-    {
-      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\prerendered-routes.json",
-      "PackagePath": "staticwebassets\\prerendered-routes.json"
     },
     {
       "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\scripts-IGA7JNQP.js",

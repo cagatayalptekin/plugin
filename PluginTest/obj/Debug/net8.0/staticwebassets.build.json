@@ -1,6 +1,6 @@
 {
   "Version": 1,
-  "Hash": "nHzHn1CF/Np1iO4juufvjHtWP2GLVSCJjPy0DO2U/uI=",
+  "Hash": "mUQF2ZFyFh/o2asNvlEvmjSz2J53D6ZbPIxAnTMo0sA=",
   "Source": "PluginTest",
   "BasePath": "_content/PluginTest",
   "Mode": "Default",
@@ -16,25 +16,6 @@
     }
   ],
   "Assets": [
-    {
-      "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\3rdpartylicenses.txt",
-      "SourceId": "PluginTest",
-      "SourceType": "Discovered",
-      "ContentRoot": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\",
-      "BasePath": "_content/PluginTest",
-      "RelativePath": "3rdpartylicenses.txt",
-      "AssetKind": "All",
-      "AssetMode": "All",
-      "AssetRole": "Primary",
-      "AssetMergeBehavior": "PreferTarget",
-      "AssetMergeSource": "",
-      "RelatedAsset": "",
-      "AssetTraitName": "",
-      "AssetTraitValue": "",
-      "CopyToOutputDirectory": "Never",
-      "CopyToPublishDirectory": "PreserveNewest",
-      "OriginalItemSpec": "wwwroot\\3rdpartylicenses.txt"
-    },
     {
       "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\background.jpg",
       "SourceId": "PluginTest",
@@ -150,12 +131,12 @@
       "OriginalItemSpec": "wwwroot\\index.html"
     },
     {
-      "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\main-276UK6CS.js",
+      "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\main-ZJRAHK6A.js",
       "SourceId": "PluginTest",
       "SourceType": "Discovered",
       "ContentRoot": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\",
       "BasePath": "_content/PluginTest",
-      "RelativePath": "main-276UK6CS.js",
+      "RelativePath": "main-ZJRAHK6A.js",
       "AssetKind": "All",
       "AssetMode": "All",
       "AssetRole": "Primary",
@@ -166,7 +147,7 @@
       "AssetTraitValue": "",
       "CopyToOutputDirectory": "Never",
       "CopyToPublishDirectory": "PreserveNewest",
-      "OriginalItemSpec": "wwwroot\\main-276UK6CS.js"
+      "OriginalItemSpec": "wwwroot\\main-ZJRAHK6A.js"
     },
     {
       "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\primeicons-4GST5W3O.woff2",
@@ -281,25 +262,6 @@
       "CopyToOutputDirectory": "Never",
       "CopyToPublishDirectory": "PreserveNewest",
       "OriginalItemSpec": "wwwroot\\polyfills-B6TNHZQ6.js"
-    },
-    {
-      "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\prerendered-routes.json",
-      "SourceId": "PluginTest",
-      "SourceType": "Discovered",
-      "ContentRoot": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\",
-      "BasePath": "_content/PluginTest",
-      "RelativePath": "prerendered-routes.json",
-      "AssetKind": "All",
-      "AssetMode": "All",
-      "AssetRole": "Primary",
-      "AssetMergeBehavior": "PreferTarget",
-      "AssetMergeSource": "",
-      "RelatedAsset": "",
-      "AssetTraitName": "",
-      "AssetTraitValue": "",
-      "CopyToOutputDirectory": "Never",
-      "CopyToPublishDirectory": "PreserveNewest",
-      "OriginalItemSpec": "wwwroot\\prerendered-routes.json"
     },
     {
       "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\scripts-IGA7JNQP.js",

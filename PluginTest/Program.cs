@@ -15,9 +15,23 @@ namespace PluginTest
             builder.Services.AddSwaggerGen();
             var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
             builder.WebHost.UseUrls($"http://*:{port}");
+            builder.Services.AddCors(options =>
+            {
+                options.AddPolicy("AllowAll", policy =>
+                {
+                    policy
+                        .AllowAnyOrigin()
+                        .AllowAnyHeader()
+                        .AllowAnyMethod();
+                });
+            });
+
+            builder.Services.AddControllers();
 
             var app = builder.Build();
 
+
+ 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
@@ -25,7 +39,8 @@ namespace PluginTest
                 app.UseSwaggerUI();
             }
 
-      
+            app.UseCors("AllowAll"); // Herkese izin
+
 
             app.UseAuthorization();
 

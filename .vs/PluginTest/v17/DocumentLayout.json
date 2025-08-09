@@ -7,12 +7,12 @@
       "RelativeMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|solutionrelative:plugintest\\controllers\\yemeksepeticontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|c:\\users\\90539\\desktop\\plgtest\\plugintest\\properties\\launchsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
-      "RelativeMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|solutionrelative:plugintest\\properties\\launchsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|c:\\users\\90539\\desktop\\plgtest\\plugintest\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|solutionrelative:plugintest\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|c:\\users\\90539\\desktop\\plgtest\\plugintest\\properties\\launchsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|solutionrelative:plugintest\\properties\\launchsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|c:\\users\\90539\\desktop\\plgtest\\plugintest\\plugintest.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
@@ -78,7 +78,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 2,
               "Title": "launchSettings.json",
               "DocumentMoniker": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\Properties\\launchSettings.json",
               "RelativeDocumentMoniker": "PluginTest\\Properties\\launchSettings.json",
@@ -86,19 +86,21 @@
               "RelativeToolTip": "PluginTest\\Properties\\launchSettings.json",
               "ViewState": "AQIAAAAAAAAAAAAAAAAAABIAAAAvAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
-              "WhenOpened": "2025-08-09T19:36:44.928Z"
+              "WhenOpened": "2025-08-09T19:36:44.928Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 1,
               "Title": "Program.cs",
               "DocumentMoniker": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\Program.cs",
               "RelativeDocumentMoniker": "PluginTest\\Program.cs",
               "ToolTip": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\Program.cs",
               "RelativeToolTip": "PluginTest\\Program.cs",
-              "ViewState": "AQIAAAcAAAAAAAAAAAAQwBgAAAANAAAA",
+              "ViewState": "AQIAABAAAAAAAAAAAAAQwCoAAAAAAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-08-09T19:33:54.108Z"
+              "WhenOpened": "2025-08-09T19:33:54.108Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
@@ -120,7 +122,7 @@
               "RelativeDocumentMoniker": "PluginTest\\Controllers\\YemeksepetiController.cs",
               "ToolTip": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\Controllers\\YemeksepetiController.cs",
               "RelativeToolTip": "PluginTest\\Controllers\\YemeksepetiController.cs",
-              "ViewState": "AQIAAMoAAAAAAAAAAADwv9cAAAAVAAAA",
+              "ViewState": "AQIAAA4BAAAAAAAAAAAywCUBAAAMAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2025-08-09T11:45:02.115Z",
               "EditorCaption": ""
