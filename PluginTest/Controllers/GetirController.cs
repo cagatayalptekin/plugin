@@ -2,6 +2,7 @@
 using Microsoft.VisualBasic.FileIO;
 using System.Text.Json;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace PluginTest.Controllers
 {
@@ -9,10 +10,11 @@ namespace PluginTest.Controllers
     [Route("api/getir")]
     public class GetirController : ControllerBase
     {
-
+        public static CourierNotificationDto courierNotification = new();
         public string token { get; set; }
 
-
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CourierNotificationDto> _latest
+    = new();
 
         [HttpPost("auth/login")]
         public async Task<IActionResult> Login()
@@ -309,6 +311,11 @@ namespace PluginTest.Controllers
         {
             return await UpdateOrderStatus(foodOrderId, "deliver");
         }
+        [HttpPost("food-orders/{foodOrderId}/handover")]
+        public async Task<IActionResult> HandoverOrder(string foodOrderId)
+        {
+            return await UpdateOrderStatus(foodOrderId, "handover");
+        }
         [HttpGet("restaurants")]
         public async Task<IActionResult> GetRestaurantInfo()
         {
@@ -441,64 +448,145 @@ namespace PluginTest.Controllers
             }
         }
 
+        [HttpGet("courier/latest/{orderId}")]
+        public ActionResult<CourierNotificationDto> GetLatest(string orderId)
+        {
+            return _latest.TryGetValue(orderId, out var dto) ? Ok(dto) : NotFound();
+        }
 
+        [HttpPost("courier")]
+        public IActionResult CourierNotification([FromBody] CourierNotificationDto payload)
+        {
+            Console.WriteLine("=== Courier Notification Payload ===");
+            string json = System.Text.Json.JsonSerializer.Serialize(payload,
+        new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true // okunabilir format
+        });
 
+           
+            Console.WriteLine(json);
+            Console.WriteLine();
+            if (payload == null)
+                Console.WriteLine("payload empty");
 
+        
+            // Header yoksa isterseniz zorunlu kılabilirsiniz:
+            // else return Unauthorized("Missing X-Api-Key.");
 
+            // Tarihleri parse etmeye çalışalım (ISO-8601 bekleniyor)
+            if (!DateTimeOffset.TryParse(payload.CalculationDate, out var calculation))
+                Console.WriteLine("calculationDate is not a valid ISO-8601 datetime.");  
 
+            DateTimeOffset? pickupMin = null, pickupMax = null;
+            if (payload.Pickup is not null)
+            {
+                if (!string.IsNullOrWhiteSpace(payload.Pickup.Min) &&
+                    DateTimeOffset.TryParse(payload.Pickup.Min, out var minVal))
+                {
+                    pickupMin = minVal;
+                }
+                if (!string.IsNullOrWhiteSpace(payload.Pickup.Max) &&
+                    DateTimeOffset.TryParse(payload.Pickup.Max, out var maxVal))
+                {
+                    pickupMax = maxVal;
+                }
+            }
 
+            // Burada: DB’ye yazabilir, in-memory cache güncelleyebilir, loglayabilirsiniz
+            Console.WriteLine($"[CourierNotify] order={payload.OrderId} rest={payload.RestaurantId} " +
+                              $"calc={calculation:o} pickupMin={(pickupMin?.ToString("o") ?? "-")} " +
+                              $"pickupMax={(pickupMax?.ToString("o") ?? "-")}");
 
+            // Örn. domain event / message queue tetiklemek isterseniz burada yapın
 
-
-
-
-
-
-
-        //private const string ApiKey = "X7kL93-fgh8W-Zmq0P-Ak2N9";
-
-        //private bool IsAuthorized()
-        //{
-        //    return Request.Headers.TryGetValue("x-api-key", out var apiKey) && apiKey == ApiKey;
-        //}
-
-        //// 1. Yeni Sipariş Webhook (birden fazla sipariş olabilir)
-        //[HttpPost("newOrder")]
-        //public IActionResult NewOrder([FromBody] List<GetirOrderModel> orders)
-        //{
-        //    if (!IsAuthorized()) return Unauthorized();
-
-        //    // Siparişleri işle
-        //    return Ok(new { status = "orders received", count = orders.Count });
-        //}
-
-        //// 2. Sipariş İptali Webhook
-        //[HttpPost("cancelOrder")]
-        //public IActionResult CancelOrder([FromBody] CancelRequest cancel)
-        //{
-        //    if (!IsAuthorized()) return Unauthorized();
-
-        //    return Ok(new { status = "cancel received", cancel.OrderId });
-        //}
-
-        //// 3. Kurye Restorana Ulaştı Webhook
-        //[HttpPost("courierArrived")]
-        //public IActionResult CourierArrived([FromBody] CourierArrivalModel courier)
-        //{
-        //    if (!IsAuthorized()) return Unauthorized();
-
-        //    return Ok(new { status = "courier arrived", courier.OrderId, courier.ArrivalTime });
-        //}
-
-        //// 4. Restoran Statü Değişikliği Bildirimi Webhook
-        //[HttpPost("statusChange")]
-        //public IActionResult StatusChange([FromBody] PosStatusChangeModel statusChange)
-        //{
-        //    if (!IsAuthorized()) return Unauthorized();
-
-        //    return Ok(new { status = "restaurant status received", restaurant = statusChange.RestaurantSecretKey });
-        //}
+            // Getir tarafına 200 OK dönmek yeterli
+            _latest[payload.OrderId] = payload;
+            return Ok();
+        }
     }
+
+    // === DTO'lar ===
+    public class CourierNotificationDto
+    {
+        [JsonPropertyName("orderId")]
+        public string OrderId { get; set; }
+
+        [JsonPropertyName("restaurantId")]
+        public string RestaurantId { get; set; }
+
+        // ISO-8601 string (örn: 2025-08-14T12:34:56+03:00)
+        [JsonPropertyName("calculationDate")]
+        public string CalculationDate { get; set; }
+
+        [JsonPropertyName("pickup")]
+        public CourierPickupWindow Pickup { get; set; }
+    }
+
+    public class CourierPickupWindow
+    {
+        // ISO-8601 string
+        [JsonPropertyName("min")]
+        public string Min { get; set; }
+
+        // ISO-8601 string
+        [JsonPropertyName("max")]
+        public string Max { get; set; }
+    }
+
+
+
+
+
+
+
+
+
+
+    //private const string ApiKey = "X7kL93-fgh8W-Zmq0P-Ak2N9";
+
+    //private bool IsAuthorized()
+    //{
+    //    return Request.Headers.TryGetValue("x-api-key", out var apiKey) && apiKey == ApiKey;
+    //}
+
+    //// 1. Yeni Sipariş Webhook (birden fazla sipariş olabilir)
+    //[HttpPost("newOrder")]
+    //public IActionResult NewOrder([FromBody] List<GetirOrderModel> orders)
+    //{
+    //    if (!IsAuthorized()) return Unauthorized();
+
+    //    // Siparişleri işle
+    //    return Ok(new { status = "orders received", count = orders.Count });
+    //}
+
+    //// 2. Sipariş İptali Webhook
+    //[HttpPost("cancelOrder")]
+    //public IActionResult CancelOrder([FromBody] CancelRequest cancel)
+    //{
+    //    if (!IsAuthorized()) return Unauthorized();
+
+    //    return Ok(new { status = "cancel received", cancel.OrderId });
+    //}
+
+    //// 3. Kurye Restorana Ulaştı Webhook
+    //[HttpPost("courierArrived")]
+    //public IActionResult CourierArrived([FromBody] CourierArrivalModel courier)
+    //{
+    //    if (!IsAuthorized()) return Unauthorized();
+
+    //    return Ok(new { status = "courier arrived", courier.OrderId, courier.ArrivalTime });
+    //}
+
+    //// 4. Restoran Statü Değişikliği Bildirimi Webhook
+    //[HttpPost("statusChange")]
+    //public IActionResult StatusChange([FromBody] PosStatusChangeModel statusChange)
+    //{
+    //    if (!IsAuthorized()) return Unauthorized();
+
+    //    return Ok(new { status = "restaurant status received", restaurant = statusChange.RestaurantSecretKey });
+    //}
+
 
     public class RestaurantMenu
     {
@@ -650,6 +738,5 @@ namespace PluginTest.Controllers
     {
         public string token { get; set; }
     }
-
 
 }
