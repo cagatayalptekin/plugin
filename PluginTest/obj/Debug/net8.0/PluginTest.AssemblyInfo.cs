@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("PluginTest")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+48319c8273d3b05ac0cd23fb8aa9f24bb7316b92")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+f3a97fdb354adfbd49494d0058fcb939b2267a29")]
 [assembly: System.Reflection.AssemblyProductAttribute("PluginTest")]
 [assembly: System.Reflection.AssemblyTitleAttribute("PluginTest")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
