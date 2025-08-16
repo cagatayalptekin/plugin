@@ -410,7 +410,7 @@ namespace PluginTest.Controllers
 
 
         [HttpGet("restaurants/menu")]
-        public async Task<IActionResult> GetRestaurantMenu()
+        public async Task<ActionResult<RestaurantMenuResponse>> GetRestaurantMenu()
         {
             string token;
 
@@ -423,20 +423,35 @@ namespace PluginTest.Controllers
                     restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
                 };
 
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
+                var loginContent = new StringContent(
+                    JsonSerializer.Serialize(loginRequest),
+                    Encoding.UTF8,
+                    "application/json"
+                );
+
+                var loginResponse = await client.PostAsync(
+                    "https://food-external-api-gateway.development.getirapi.com/auth/login",
+                    loginContent
+                );
 
                 if (!loginResponse.IsSuccessStatusCode)
                     return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
 
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
+                var loginResult = JsonSerializer.Deserialize<LoginResponse>(
+                    await loginResponse.Content.ReadAsStringAsync(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                token = loginResult?.token ?? string.Empty;
             }
+
+            if (string.IsNullOrEmpty(token))
+                return Unauthorized("Token alınamadı.");
 
             // 2. Menü verisini çek
             using (var client = new HttpClient())
             {
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                client.DefaultRequestHeaders.Add("token", token); // Bearer değil
 
                 var response = await client.GetAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/menu");
 
@@ -444,11 +459,21 @@ namespace PluginTest.Controllers
                     return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
 
                 var json = await response.Content.ReadAsStringAsync();
-                var menu = JsonSerializer.Deserialize<RestaurantMenu>(json);
 
-                return Ok(menu);
+                // ✅ Deserialize et
+                var menu = JsonSerializer.Deserialize<RestaurantMenuResponse>(
+                    json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                if (menu == null)
+                    return Problem("Menü deserialize edilemedi.");
+
+                // ✅ Direkt model döndür
+                return menu;
             }
         }
+
 
         [HttpGet("courier/latest/{orderId}")]
         public ActionResult<CourierNotificationDto> GetLatest(string orderId)
@@ -465,7 +490,7 @@ namespace PluginTest.Controllers
             }
         }
 
-        [HttpPost("courierArrived")]
+        [HttpPost("courier")]
         public IActionResult CourierNotification([FromBody] CourierNotificationDto payload)
         {
             Console.WriteLine("=== Courier Notification Payload ===");
@@ -599,43 +624,168 @@ namespace PluginTest.Controllers
     //}
 
 
-    public class RestaurantMenu
+ 
+
+public sealed class RestaurantMenuResponse
     {
-        public List<ProductCategory> productCategories { get; set; }
+        [JsonPropertyName("productCategories")]
+        public List<ProductCategory> ProductCategories { get; set; } = new();
     }
 
-    public class ProductCategory
+    public sealed class ProductCategory
     {
-        public string id { get; set; }
-        public Dictionary<string, string> name { get; set; }
-        public List<MenuProduct> products { get; set; }
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("name")]
+        public LocalizedText? Name { get; set; }
+
+        [JsonPropertyName("restaurant")]
+        public string? Restaurant { get; set; }
+
+        [JsonPropertyName("products")]
+        public List<GetirProduct> Products { get; set; } = new();
+
+        [JsonPropertyName("isApproved")]
+        public bool IsApproved { get; set; }
+
+        [JsonPropertyName("weight")]
+        public int Weight { get; set; }
+
+        [JsonPropertyName("status")]
+        public int Status { get; set; }
+
+        [JsonPropertyName("chainProductCategory")]
+        public string? ChainProductCategory { get; set; }
     }
 
-    public class MenuProduct
+    public sealed class GetirProduct
     {
-        public string id { get; set; }
-        public Dictionary<string, string> name { get; set; }
-        public Dictionary<string, string> description { get; set; }
-        public decimal price { get; set; }
-        public int status { get; set; }
-        public bool isApproved { get; set; }
-        public List<OptionCategory> optionCategories { get; set; }
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("restaurant")]
+        public string? Restaurant { get; set; }
+
+        [JsonPropertyName("productCategory")]
+        public string? ProductCategory { get; set; }
+
+        [JsonPropertyName("optionCategories")]
+        public List<OptionCategory> OptionCategories { get; set; } = new();
+
+        [JsonPropertyName("name")]
+        public LocalizedText? Name { get; set; }
+
+        [JsonPropertyName("description")]
+        public LocalizedText? Description { get; set; }
+
+        [JsonPropertyName("price")]
+        public decimal Price { get; set; }
+
+        [JsonPropertyName("struckPrice")]
+        public decimal StruckPrice { get; set; }
+
+        [JsonPropertyName("weight")]
+        public int Weight { get; set; }
+
+        [JsonPropertyName("status")]
+        public int Status { get; set; }
+
+        [JsonPropertyName("isApproved")]
+        public bool IsApproved { get; set; }
+
+        [JsonPropertyName("imageURL")]
+        public string? ImageUrl { get; set; }
+
+        [JsonPropertyName("wideImageURL")]
+        public string? WideImageUrl { get; set; }
+
+        [JsonPropertyName("chainProduct")]
+        public string? ChainProduct { get; set; }
     }
 
-    public class OptionCategory
+    public sealed class OptionCategory
     {
-        public string id { get; set; }
-        public Dictionary<string, string> name { get; set; }
-        public List<Option> options { get; set; }
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("name")]
+        public LocalizedText? Name { get; set; }
+
+        [JsonPropertyName("minCount")]
+        public int MinCount { get; set; }
+
+        [JsonPropertyName("maxCount")]
+        public int MaxCount { get; set; }
+
+        [JsonPropertyName("removeToppings")]
+        public bool RemoveToppings { get; set; }
+
+        [JsonPropertyName("weight")]
+        public int Weight { get; set; }
+
+        [JsonPropertyName("status")]
+        public int Status { get; set; }
+
+        [JsonPropertyName("chainOptionCategory")]
+        public string? ChainOptionCategory { get; set; }
+
+        [JsonPropertyName("options")]
+        public List<Option> Options { get; set; } = new();
     }
 
-    public class Option
+    public sealed class Option
     {
-        public string id { get; set; }
-        public Dictionary<string, string> name { get; set; }
-        public decimal price { get; set; }
-        public int status { get; set; }
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("product")]
+        public string? Product { get; set; }
+
+        [JsonPropertyName("chainProduct")]
+        public string? ChainProduct { get; set; }
+
+        [JsonPropertyName("name")]
+        public LocalizedText? Name { get; set; }
+
+        [JsonPropertyName("clientDisplayName")]
+        public LocalizedText? ClientDisplayName { get; set; }
+
+        [JsonPropertyName("optionProduct")]
+        public string? OptionProduct { get; set; }
+
+        [JsonPropertyName("chainOptionProduct")]
+        public string? ChainOptionProduct { get; set; }
+
+        // API burada string[] döndürüyor
+        [JsonPropertyName("optionCategories")]
+        public List<string> OptionCategories { get; set; } = new();
+
+        [JsonPropertyName("type")]
+        public int Type { get; set; }
+
+        [JsonPropertyName("price")]
+        public decimal Price { get; set; }
+
+        [JsonPropertyName("weight")]
+        public int Weight { get; set; }
+
+        [JsonPropertyName("status")]
+        public int Status { get; set; }
+
+        [JsonPropertyName("chainOption")]
+        public string? ChainOption { get; set; }
     }
+
+    public sealed class LocalizedText
+    {
+        [JsonPropertyName("tr")]
+        public string? Tr { get; set; }
+
+        [JsonPropertyName("en")]
+        public string? En { get; set; }
+    }
+
 
     public class RestaurantInfo
     {
