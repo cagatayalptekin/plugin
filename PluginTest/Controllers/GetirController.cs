@@ -3,6 +3,7 @@ using Microsoft.VisualBasic.FileIO;
 using System.Text.Json;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Reflection.Metadata.Ecma335;
 
 namespace PluginTest.Controllers
 {
@@ -452,7 +453,16 @@ namespace PluginTest.Controllers
         [HttpGet("courier/latest/{orderId}")]
         public ActionResult<CourierNotificationDto> GetLatest(string orderId)
         {
-            return _latest.TryGetValue(orderId, out var dto) ? Ok(dto) : NotFound();
+            if (_latest.TryGetValue(orderId, out var dto))
+            {
+                return dto;
+            }
+               
+            else
+            {
+                Console.WriteLine(  "bulunamadıı");
+                return NotFound($"No notification found for order ID: {orderId}");
+            }
         }
 
         [HttpPost("courier")]
