@@ -381,8 +381,8 @@ namespace PluginTest.Controllers
                 return Ok(JsonDocument.Parse(responseBody));
             }
         }
-        [HttpPut("restaurants/pos-status")]
-        public async Task<IActionResult> UpdatePosStatus([FromQuery] int posStatus) // 100 = açık, 200 = kapalı
+        [HttpPost("restaurants/pos/status/{status}")]
+        public async Task<IActionResult> UpdatePosStatus([FromRoute] int posStatus)
         {
             var request = new
             {
