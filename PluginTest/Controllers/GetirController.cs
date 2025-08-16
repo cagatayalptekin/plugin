@@ -87,6 +87,7 @@ namespace PluginTest.Controllers
 
                 var responseBody = await response.Content.ReadAsStringAsync();
                 var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(responseBody);
+                Console.WriteLine(JsonSerializer.Serialize(orders, new JsonSerializerOptions { WriteIndented = true }));
 
                 return orders;
             }
@@ -510,28 +511,28 @@ namespace PluginTest.Controllers
     public class CourierNotificationDto
     {
         [JsonPropertyName("orderId")]
-        public string OrderId { get; set; }
+        public string? OrderId { get; set; }
 
         [JsonPropertyName("restaurantId")]
-        public string RestaurantId { get; set; }
+        public string? RestaurantId { get; set; }
 
         // ISO-8601 string (örn: 2025-08-14T12:34:56+03:00)
         [JsonPropertyName("calculationDate")]
-        public string CalculationDate { get; set; }
+        public string? CalculationDate { get; set; }
 
         [JsonPropertyName("pickup")]
-        public CourierPickupWindow Pickup { get; set; }
+        public CourierPickupWindow? Pickup { get; set; }
     }
 
     public class CourierPickupWindow
     {
         // ISO-8601 string
         [JsonPropertyName("min")]
-        public string Min { get; set; }
+        public string? Min { get; set; }
 
         // ISO-8601 string
         [JsonPropertyName("max")]
-        public string Max { get; set; }
+        public string? Max { get; set; }
     }
 
 
