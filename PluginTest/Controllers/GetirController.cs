@@ -465,7 +465,7 @@ namespace PluginTest.Controllers
             }
         }
 
-        [HttpPost("courier")]
+        [HttpPost("courierArrived")]
         public IActionResult CourierNotification([FromBody] CourierNotificationDto payload)
         {
             Console.WriteLine("=== Courier Notification Payload ===");
