@@ -403,6 +403,8 @@ namespace PluginTest.Controllers
                     return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
 
                 var responseBody = await response.Content.ReadAsStringAsync();
+                Console.WriteLine("✅ Response status: " + response.StatusCode);
+                Console.WriteLine("✅ Response body: " + responseBody);
                 return Ok(JsonDocument.Parse(responseBody));
             }
         }
