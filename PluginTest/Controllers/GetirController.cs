@@ -412,6 +412,8 @@ namespace PluginTest.Controllers
         [HttpPost("restaurants/status/{status}/{time}")]
         public async Task<IActionResult> CloseRestaurant([FromRoute] int status, [FromRoute] int time)
         {
+            Console.WriteLine("✅ Time  is: " + time);
+            Console.WriteLine("✅ status is : " + status);
             string token;
 
             // 1. Login işlemi: token al
@@ -439,9 +441,9 @@ namespace PluginTest.Controllers
             using (var client = new HttpClient())
             {
                 var response= new HttpResponseMessage();
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                client.DefaultRequestHeaders.Add("token", token); // Bearer değil
 
-                if(status==100)
+                if (status==100)
                 {
                      response = await client.PutAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/status/open", null);
                 }
@@ -466,50 +468,11 @@ namespace PluginTest.Controllers
                 var responseBody = await response.Content.ReadAsStringAsync();
                 Console.WriteLine("✅ Response status: " + response.StatusCode);
                 Console.WriteLine("✅ Response body: " + responseBody);
-                return Ok(JsonDocument.Parse(responseBody));
+                return Ok();
             }
         }
 
-        [HttpPost("restaurants/status/open")]
-        public async Task<IActionResult> OpenRestaurant([FromRoute] int status)
-        {
-            string token;
-
-            // 1. Login işlemi: token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-
-                if (!loginResponse.IsSuccessStatusCode)
-                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-
-            using (var client = new HttpClient())
-            {
-
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-
-                var response = await client.PutAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/status/open",null);
-
-                if (!response.IsSuccessStatusCode)
-                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
-
-                var responseBody = await response.Content.ReadAsStringAsync();
-                Console.WriteLine("✅ Response status: " + response.StatusCode);
-                Console.WriteLine("✅ Response body: " + responseBody);
-                return Ok(JsonDocument.Parse(responseBody));
-            }
-        }
+         
 
         [HttpGet("restaurants/menu")]
         public async Task<ActionResult<RestaurantMenuResponse>> GetRestaurantMenu()
