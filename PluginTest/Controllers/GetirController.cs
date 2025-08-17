@@ -410,7 +410,7 @@ namespace PluginTest.Controllers
         }
 
         [HttpPost("restaurants/status/{status}/{time}")]
-        public async Task<IActionResult> CloseRestaurant([FromRoute] int time, [FromRoute] int status)
+        public async Task<IActionResult> CloseRestaurant([FromRoute] int status, [FromRoute] int time)
         {
             string token;
 
