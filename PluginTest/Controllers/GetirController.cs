@@ -382,11 +382,11 @@ namespace PluginTest.Controllers
             }
         }
         [HttpPost("restaurants/pos/status/{status}")]
-        public async Task<IActionResult> UpdatePosStatus([FromRoute] int posStatus)
+        public async Task<IActionResult> UpdatePosStatus([FromRoute] int status)
         {
             var request = new
             {
-                posStatus = posStatus,
+                posStatus = status,
                 appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
                 restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
             };
