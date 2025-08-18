@@ -318,8 +318,8 @@ namespace PluginTest.Controllers
         {
             return await UpdateOrderStatus(foodOrderId, "handover");
         }
-        [HttpGet("restaurants")]
-        public async Task<IActionResult> GetRestaurantInfo()
+         
+        public async Task<IActionResult> GetRestaurantInfoNotUsed()
         {
             string token;
 
@@ -471,8 +471,54 @@ namespace PluginTest.Controllers
                 return Ok();
             }
         }
+        [HttpGet("restaurants")]
+        public async Task<IActionResult> GetRestaurantInfo()
+        {
+            string token;
 
-         
+            // 1) Login → token
+            using (var client = new HttpClient())
+            {
+                var loginPayload = new
+                {
+                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
+                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
+                };
+
+                var loginContent = new StringContent(JsonSerializer.Serialize(loginPayload), Encoding.UTF8, "application/json");
+                var loginResp = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
+                var loginBody = await loginResp.Content.ReadAsStringAsync();
+                if (!loginResp.IsSuccessStatusCode) return StatusCode((int)loginResp.StatusCode, loginBody);
+
+                var login = JsonSerializer.Deserialize<LoginResponse>(loginBody, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                token = login?.token ?? "";
+            }
+
+            // 2) GET /restaurants
+            using (var client = new HttpClient())
+            {
+                client.DefaultRequestHeaders.Add("token", token); // per docs
+
+                var resp = await client.GetAsync("https://food-external-api-gateway.development.getirapi.com/restaurants");
+                var body = await resp.Content.ReadAsStringAsync();
+
+                Console.WriteLine($"[GET /restaurants] {resp.StatusCode}");
+                Console.WriteLine(body);
+
+                if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+
+                var model = JsonSerializer.Deserialize<RestaurantInfoResponse>(
+                    body,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                if (model == null) return StatusCode(502, "Invalid restaurant payload.");
+
+                return Ok(model); // ← Angular receives { id, status, ... }
+            }
+        }
+
+
 
         [HttpGet("restaurants/menu")]
         public async Task<ActionResult<RestaurantMenuResponse>> GetRestaurantMenu()
@@ -689,9 +735,18 @@ namespace PluginTest.Controllers
     //}
 
 
- 
 
-public sealed class RestaurantMenuResponse
+    public sealed class RestaurantInfoResponse
+    {
+        public string id { get; set; } = "";
+        public int averagePreparationTime { get; set; }
+        public int status { get; set; }                 // 100=open, 200=closed (proxy as-is)
+        public bool isCourierAvailable { get; set; }
+        public string name { get; set; } = "";
+        public bool isStatusChangedByUser { get; set; }
+        public int closedSource { get; set; }
+    }
+    public sealed class RestaurantMenuResponse
     {
         [JsonPropertyName("productCategories")]
         public List<ProductCategory> ProductCategories { get; set; } = new();
