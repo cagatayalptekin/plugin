@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Reflection.Metadata.Ecma335;
+using Microsoft.AspNetCore.Identity.Data;
 
 namespace PluginTest.Controllers
 {
@@ -357,6 +358,111 @@ namespace PluginTest.Controllers
                 return Ok(restaurant);
             }
         }
+
+
+
+
+
+        [HttpGet("products/{productId}/status")]
+        public async Task<IActionResult> GetProductStatus([FromRoute] string productId)
+        {
+            string token;
+
+            // 1. Login işlemi: token al
+            using (var client = new HttpClient())
+            {
+                var loginRequest = new
+                {
+                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
+                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
+                };
+
+                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
+                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
+
+                if (!loginResponse.IsSuccessStatusCode)
+                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
+
+                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
+                token = loginResult.token;
+            }
+
+            using (var client = new HttpClient())
+            {
+                client.DefaultRequestHeaders.Add("token", token); // Getir expects 'token' header here
+
+                var resp = await client.GetAsync($"https://food-external-api-gateway.development.getirapi.com/products/{productId}/status");
+                var body = await resp.Content.ReadAsStringAsync();
+
+                Console.WriteLine($"[GET /products/{productId}/status] {resp.StatusCode}");
+                Console.WriteLine(body);
+
+                if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+
+                // Pass-through typed or raw:
+                var model = JsonSerializer.Deserialize<ProductStatusResponse>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return Ok(model);
+            }
+            return Ok();
+        }
+
+        [HttpPut("products/{productId}/status")]
+        public async Task<IActionResult> UpdateProductStatus([FromRoute] string productId, [FromBody] UpdateProductStatusRequest req)
+        {
+
+
+
+            if (req == null || (req.status != 100 && req.status != 200 && req.status != 400))
+                return BadRequest("status must be 100 (ACTIVE), 200 (INACTIVE) or 400 (DAILY_INACTIVE).");
+
+            string token;
+
+            // 1. Login işlemi: token al
+            using (var client = new HttpClient())
+            {
+                var loginRequest = new
+                {
+                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
+                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
+                };
+
+                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
+                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
+
+                if (!loginResponse.IsSuccessStatusCode)
+                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
+
+                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
+                token = loginResult.token;
+            }
+            using (var client = new HttpClient())
+            {
+
+
+                client.DefaultRequestHeaders.Add("token", token);
+
+                var content = new StringContent(JsonSerializer.Serialize(req), Encoding.UTF8, "application/json");
+
+                var resp = await client.PutAsync($"https://food-external-api-gateway.development.getirapi.com/products/{productId}/status", content);
+                var body = await resp.Content.ReadAsStringAsync();
+
+                Console.WriteLine($"[PUT /products/{productId}/status] {resp.StatusCode}");
+                Console.WriteLine(body);
+
+                if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+
+                // Return updated status payload if provided; if empty, return { status: req.status } as confirmation
+                if (string.IsNullOrWhiteSpace(body))
+                    return Ok(new { id = productId, status = req.status });
+                return Ok(JsonDocument.Parse(body));
+            }
+            return Ok();
+        }
+
+
+
+
+
         [HttpPost("restaurants/pos-status")]
         public async Task<IActionResult> GetPosStatus()
         {
@@ -733,7 +839,16 @@ namespace PluginTest.Controllers
 
     //    return Ok(new { status = "restaurant status received", restaurant = statusChange.RestaurantSecretKey });
     //}
+    public sealed class ProductStatusResponse
+    {
+        public string id { get; set; } = "";
+        public int status { get; set; } // 100, 200, 400
+    }
 
+    public sealed class UpdateProductStatusRequest
+    {
+        public int status { get; set; } // 100, 200, 400
+    }
 
 
     public sealed class RestaurantInfoResponse
