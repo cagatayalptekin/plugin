@@ -299,7 +299,7 @@ namespace PluginTest.Controllers
 
 
         [HttpPost("food-orders/{foodOrderId}/verify/{status}")]
-        public async Task<IActionResult> VerifyOrder(string foodOrderId,[FromRoute] int status)
+        public async Task<IActionResult> VerifyOrder([FromRoute] string foodOrderId, [FromRoute] int status)
         {
             if(status==400)
             {
