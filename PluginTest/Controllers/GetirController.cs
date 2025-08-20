@@ -682,7 +682,7 @@ namespace PluginTest.Controllers
                     json,
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
                 );
-
+                Console.WriteLine(JsonSerializer.Serialize(menu, new JsonSerializerOptions { WriteIndented = true }));
                 if (menu == null)
                     return Problem("Menü deserialize edilemedi.");
 
