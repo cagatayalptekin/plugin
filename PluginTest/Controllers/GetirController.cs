@@ -297,11 +297,21 @@ namespace PluginTest.Controllers
         }
 
 
-        [HttpPost("food-orders/{foodOrderId}/verify")]
-        public async Task<IActionResult> VerifyOrder(string foodOrderId)
+        [HttpPost("food-orders/{foodOrderId}/verify/{status}")]
+        public async Task<IActionResult> VerifyOrder(string foodOrderId,[FromRoute] string status)
         {
-            return await UpdateOrderStatus(foodOrderId, "verify");
+            if(status=="400")
+            {
+                return await UpdateOrderStatus(foodOrderId, "verify");
+            }
+            else if(status=="325")
+            {
+                return await UpdateOrderStatus(foodOrderId, "verify-schedule");
+            }
+            return Ok(foodOrderId);
         }
+       
+            
 
         [HttpPost("food-orders/{foodOrderId}/prepare")]
         public async Task<IActionResult> PrepareOrder(string foodOrderId)
