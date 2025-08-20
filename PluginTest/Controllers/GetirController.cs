@@ -437,7 +437,7 @@ namespace PluginTest.Controllers
             }
             using (var client = new HttpClient())
             {
-
+                Console.WriteLine(  "MY PRODUCT ID is that",productId);
 
                 client.DefaultRequestHeaders.Add("token", token);
 
