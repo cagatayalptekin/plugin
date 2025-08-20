@@ -90,7 +90,8 @@ namespace PluginTest.Controllers
                 var responseBody = await response.Content.ReadAsStringAsync();
                 var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(responseBody);
                 Console.WriteLine(JsonSerializer.Serialize(orders, new JsonSerializerOptions { WriteIndented = true }));
-
+                var firstOrder = GetOrderById(orders.FirstOrDefault().id);
+                Console.WriteLine("First ORDER IS THAT->>:"+JsonSerializer.Serialize(firstOrder, new JsonSerializerOptions { WriteIndented = true }));
                 return orders;
             }
             // 2. Adım: Token ile aktif siparişleri çek
@@ -135,7 +136,7 @@ namespace PluginTest.Controllers
                     return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
 
                 var json = await response.Content.ReadAsStringAsync();
-
+                Console.WriteLine("Food order is"+json);
                 // response'u olduğu gibi dön (ya da istersen modelle deserialize et)
                 return Ok(JsonDocument.Parse(json));
             }
