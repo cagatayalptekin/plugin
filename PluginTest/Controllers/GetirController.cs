@@ -307,7 +307,7 @@ namespace PluginTest.Controllers
             }
             else if(status==325)
             {
-                return await UpdateOrderStatus(foodOrderId, "verify-schedule");
+                return await UpdateOrderStatus(foodOrderId, "verify-scheduled");
             }
             return Ok(foodOrderId);
         }
