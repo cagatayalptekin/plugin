@@ -185,8 +185,8 @@ namespace PluginTest.Controllers
         }
 
 
-        [HttpPost("cancel-order/{foodOrderId}")]
-        public async Task<IActionResult> CancelOrder(string foodOrderId)
+        [HttpPost("cancel-order/{foodOrderId}/{cancelNote}/{cancelReasonId}")]
+        public async Task<IActionResult> CancelOrder([FromRoute]string foodOrderId, [FromRoute] string cancelNote, [FromRoute] string cancelReasonId)
         {
             string token;
 
@@ -209,26 +209,9 @@ namespace PluginTest.Controllers
                 token = loginResult.token;
             }
 
-            // 2. Cancel options: (iptal nedenini alalım - bu örnekte ilk nedeni otomatik alıyoruz)
-            string cancelReasonId;
-            string cancelNote;
+                 
 
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-                var cancelOptionsUrl = $"https://food-external-api-gateway.development.getirapi.com/food-orders/{foodOrderId}/cancel-options";
-                var cancelOptionsResponse = await client.GetAsync(cancelOptionsUrl);
-
-                if (!cancelOptionsResponse.IsSuccessStatusCode)
-                    return StatusCode((int)cancelOptionsResponse.StatusCode, await cancelOptionsResponse.Content.ReadAsStringAsync());
-
-                var cancelOptionsJson = await cancelOptionsResponse.Content.ReadAsStringAsync();
-                var cancelOptions = JsonSerializer.Deserialize<List<CancelOption>>(cancelOptionsJson);
-
-                // örnek: ilk nedeni seçiyoruz
-                cancelReasonId = cancelOptions.First().id;
-                cancelNote = cancelOptions.First().message;
-            }
+        
 
             // 3. İptal işlemini gönder
             using (var client = new HttpClient())
