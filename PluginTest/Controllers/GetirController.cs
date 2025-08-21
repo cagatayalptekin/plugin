@@ -143,7 +143,7 @@ namespace PluginTest.Controllers
         }
 
         [HttpGet("food-orders/{foodOrderId}/cancel-options")]
-        public async Task<IActionResult> GetCancelOptions(string foodOrderId)
+        public async Task<IActionResult> GetCancelOptions([FromRoute]string foodOrderId)
         {
             string token;
 
@@ -169,7 +169,7 @@ namespace PluginTest.Controllers
             // 2. Adım: Cancel Options isteği gönder
             using (var client = new HttpClient())
             {
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                client.DefaultRequestHeaders.Add("token", token);
 
                 var url = $"https://food-external-api-gateway.development.getirapi.com/food-orders/{foodOrderId}/cancel-options";
                 var response = await client.GetAsync(url);
@@ -216,7 +216,7 @@ namespace PluginTest.Controllers
             // 3. İptal işlemini gönder
             using (var client = new HttpClient())
             {
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                client.DefaultRequestHeaders.Add("token", token);
 
                 var cancelBody = new CancelOrderRequest
                 {
