@@ -98,12 +98,12 @@ namespace PluginTest.Controllers
 
         }
 
-
+        
         [HttpGet("order-detail/{foodOrderId}")]
         public async Task<IActionResult> GetOrderById(string foodOrderId)
         {
             string token;
-
+            Console.WriteLine("food id is that"+foodOrderId);
             // 1. Adım: Login olup token al
             using (var client = new HttpClient())
             {
@@ -126,7 +126,7 @@ namespace PluginTest.Controllers
             // 2. Adım: Siparişi ID ile çek
             using (var client = new HttpClient())
             {
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                client.DefaultRequestHeaders.Add("token", token);
 
                 var url = $"https://food-external-api-gateway.development.getirapi.com/food-orders/{foodOrderId}";
 
