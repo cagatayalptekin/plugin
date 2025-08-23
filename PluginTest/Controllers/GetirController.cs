@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Reflection.Metadata.Ecma335;
 using Microsoft.AspNetCore.Identity.Data;
+using System.ComponentModel.DataAnnotations;
 
 namespace PluginTest.Controllers
 {
@@ -617,7 +618,23 @@ namespace PluginTest.Controllers
                 return Ok(model); // ← Angular receives { id, status, ... }
             }
         }
+        [HttpPost("restaurant")]
+        public IActionResult StatusChange([FromBody] PosStatusChangeModel statusChange)
+        {
+            Console.WriteLine("qwe");
+            // Gelen payload'u komple JSON olarak console'a yaz
+            Console.WriteLine(
+                $"RestaurantId: {statusChange.RestaurantId}, " +
+                $"RestaurantName: {statusChange.RestaurantName}, " +
+                $"Status(raw): {statusChange.Status}, " +
+                $"StatusChangeDate: {statusChange.StatusChangeDate}"
+            );
 
+            // Tüm modeli JSON serialize edip loglamak için:
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(statusChange));
+
+            return Ok();
+        }
 
 
         [HttpGet("restaurants/menu")]
@@ -783,7 +800,13 @@ namespace PluginTest.Controllers
 
 
 
-
+    public sealed class PosStatusChangeModel
+    {
+        public string RestaurantId { get; set; } = default!;
+        public string? RestaurantName { get; set; }
+        public string Status { get; set; } = default!; // enum yerine string tutuyoruz
+        public DateTimeOffset StatusChangeDate { get; set; }
+    }
 
 
 
