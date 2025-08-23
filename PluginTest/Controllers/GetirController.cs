@@ -837,7 +837,55 @@ namespace PluginTest.Controllers
             _latest[payload.OrderId] = payload;
             return Ok();
         }
+
+        // AÇ: PUT /restaurants/status/open
+        [HttpPost("restaurants/enable")]
+        public async Task<IActionResult> EnableRestaurant()
+        {
+            var token = await GetTokenAsync();
+
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
+
+            // Boş JSON göndersin (Getir tarafı PUT + body bekliyor)
+            using var body = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resp = await http.PutAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/status/open", body);
+
+            var respBody = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, respBody);
+
+            // İstersen pass-through yap; ben basit OK döndürüyorum:
+            return Ok(new { result = true, status = 100 });
+        }
+
+        // KAPAT: PUT /restaurants/status/close   (15/30/45 ya da süresiz)
+        [HttpPost("restaurants/disable")]
+        public async Task<IActionResult> DisableRestaurant([FromBody] DisableRestaurantDto dto)
+        {
+            var token = await GetTokenAsync();
+
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
+
+            // minutes varsa { timeOffAmount } gönder, yoksa {} (süresiz)
+            string json = (dto?.TimeOffAmount is int m)
+                ? JsonSerializer.Serialize(new { timeOffAmount = m })
+                : "{}";
+
+            using var body = new StringContent(json, Encoding.UTF8, "application/json");
+            var resp = await http.PutAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/status/close", body);
+
+            var respBody = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, respBody);
+
+            // Süreli kapama => 300, süresiz => 200
+            var status = (dto?.TimeOffAmount is int) ? 300 : 200;
+            return Ok(new { result = true, status });
+        }
+
     }
+
+
 
     // === DTO'lar ===
     public class CourierNotificationDto
@@ -925,6 +973,11 @@ namespace PluginTest.Controllers
 
     //    return Ok(new { status = "restaurant status received", restaurant = statusChange.RestaurantSecretKey });
     //}
+    public sealed class DisableRestaurantDto
+    {
+        public int? TimeOffAmount { get; set; } // 15 / 30 / 45, null => süresiz
+    }
+
     public sealed class ProductStatusResponse
     {
         public string id { get; set; } = "";
