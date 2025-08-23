@@ -802,10 +802,10 @@ namespace PluginTest.Controllers
 
     public sealed class PosStatusChangeModel
     {
-        public string RestaurantId { get; set; } = default!;
+        public string? RestaurantId { get; set; }
         public string? RestaurantName { get; set; }
-        public string Status { get; set; } = default!; // enum yerine string tutuyoruz
-        public DateTimeOffset StatusChangeDate { get; set; }
+        public string? Status { get; set; } // enum yerine string tutuyoruz
+        public DateTimeOffset? StatusChangeDate { get; set; }
     }
 
 
