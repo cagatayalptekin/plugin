@@ -19,6 +19,75 @@ namespace PluginTest.Controllers
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CourierNotificationDto> _latest
     = new();
 
+
+        private const string BaseUrl = "https://food-external-api-gateway.development.getirapi.com";
+        private const string AppSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d";
+        private const string RestaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b";
+
+        private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+        private async Task<string> GetTokenAsync()
+        {
+            using var client = new HttpClient();
+            var loginPayload = new { appSecretKey = AppSecretKey, restaurantSecretKey = RestaurantSecretKey };
+            var content = new StringContent(JsonSerializer.Serialize(loginPayload), Encoding.UTF8, "application/json");
+
+            var resp = await client.PostAsync($"{BaseUrl}/auth/login", content);
+            resp.EnsureSuccessStatusCode();
+
+            var json = await resp.Content.ReadAsStringAsync();
+            var parsed = JsonSerializer.Deserialize<TokenResponse>(json, JsonOpts);
+            return parsed?.Token ?? throw new InvalidOperationException("Token alınamadı.");
+        }
+
+        // POST api/getir/restaurants/courier/enable
+        [HttpPost("restaurants/courier/enable")]
+        public async Task<IActionResult> EnableCourier()
+        {
+            var token = await GetTokenAsync();
+
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Add("token", token);
+
+            var resp = await client.PostAsync($"{BaseUrl}/restaurants/courier/enable",
+                                              new StringContent("{}", Encoding.UTF8, "application/json"));
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+
+            return Content(body, "application/json");
+        }
+
+        public class DisableCourierDto { public int? TimeOffAmount { get; set; } } // dk cinsinden
+
+        // POST api/getir/restaurants/courier/disable
+        [HttpPost("restaurants/courier/disable")]
+        public async Task<IActionResult> DisableCourier([FromBody] DisableCourierDto dto)
+        {
+            var token = await GetTokenAsync();
+
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Add("token", token);
+            var request = new
+            {
+
+                timeOffAmount = dto.TimeOffAmount
+            };
+            var json = JsonSerializer.Serialize(request, JsonOpts);
+            // minutes verilmediyse boş obje gönder (süresiz)
+          
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var resp = await client.PostAsync($"{BaseUrl}/restaurants/courier/disable", content);
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+
+            return Content(body, "application/json");
+        }
+
+       
+
+
+
         [HttpPost("auth/login")]
         public async Task<IActionResult> Login()
         {
@@ -1038,7 +1107,7 @@ namespace PluginTest.Controllers
         public string? En { get; set; }
     }
 
-
+    public class TokenResponse { public string Token { get; set; } = ""; }
     public class RestaurantInfo
     {
         public string id { get; set; }
