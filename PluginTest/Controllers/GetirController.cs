@@ -6,6 +6,12 @@ using System.Text.Json.Serialization;
 using System.Reflection.Metadata.Ecma335;
 using Microsoft.AspNetCore.Identity.Data;
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
+using System.Reflection.Metadata;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+using QuestPDF.Drawing;   
 
 namespace PluginTest.Controllers
 {
@@ -13,6 +19,13 @@ namespace PluginTest.Controllers
     [Route("api/getir")]
     public class GetirController : ControllerBase
     {
+        private readonly IWebHostEnvironment _env;
+
+        public GetirController(IWebHostEnvironment env)
+        {
+            _env = env;
+        }
+
         public static CourierNotificationDto courierNotification = new();
         public string token { get; set; }
 
@@ -23,7 +36,7 @@ namespace PluginTest.Controllers
         private const string BaseUrl = "https://food-external-api-gateway.development.getirapi.com";
         private const string AppSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d";
         private const string RestaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b";
-
+        
         private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
         private async Task<string> GetTokenAsync()
@@ -160,7 +173,11 @@ namespace PluginTest.Controllers
                 var responseBody = await response.Content.ReadAsStringAsync();
                 var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(responseBody);
                 Console.WriteLine(JsonSerializer.Serialize(orders, new JsonSerializerOptions { WriteIndented = true }));
-            await GetOrderById(orders.FirstOrDefault().id);
+                if (orders?.Count > 0)
+                {
+                    await GetOrderById(orders.FirstOrDefault().id);
+                }
+         
            
                 return orders;
             }
@@ -578,6 +595,238 @@ namespace PluginTest.Controllers
                 return Ok(JsonDocument.Parse(responseBody));
             }
         }
+        [HttpGet("food-orders/{foodOrderId}/receipt.png")]
+        public async Task<IActionResult> GetOrderReceiptPdf(string foodOrderId)
+        {
+            // 1) Login → token
+            string token;
+            using (var client = new HttpClient())
+            {
+                var loginRequest = new
+                {
+                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
+                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
+                };
+                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
+                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
+                if (!loginResponse.IsSuccessStatusCode)
+                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
+
+                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                token = loginResult?.token ?? "";
+            }
+
+            // 2) Siparişi çek
+            FoodOrderResponse order;
+            using (var client = new HttpClient())
+            {
+                client.DefaultRequestHeaders.Add("token", token);
+                var url = $"https://food-external-api-gateway.development.getirapi.com/food-orders/{foodOrderId}";
+                var resp = await client.GetAsync(url);
+                var body = await resp.Content.ReadAsStringAsync();
+                if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+
+                order = JsonSerializer.Deserialize<FoodOrderResponse>(body,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+            }
+
+            // 3) Logo bytes (opsiyonel)
+            byte[]? logoBytes = null;
+            try
+            {
+                var logoPath = Path.Combine(_env.WebRootPath, "uploads", "getir-logo.png");
+
+                if (System.IO.File.Exists(logoPath))
+                    logoBytes = await System.IO.File.ReadAllBytesAsync(logoPath);
+            }
+            catch { /* logla istersen */ }
+
+            // 4) PDF oluştur
+            var png = ReceiptImageBuilder.BuildPng(order, logoBytes);
+            return File(png, "image/png", $"siparis_fisi_{order.id}.png");
+        }
+        public static class ReceiptImageBuilder
+        {
+            public static byte[] BuildPng(FoodOrderResponse o, byte[]? logoBytes)
+            {
+                // Küçük yardımcılar
+                var tr = CultureInfo.GetCultureInfo("tr-TR");
+                string Money(decimal v) => string.Format(tr, "{0:N2} ₺", v);
+                string TryDate(string? iso) => DateTime.TryParse(iso, out var dt)
+                    ? dt.ToString("dd.MM.yyyy HH:mm", tr)
+                    : "-";
+
+                // Telefon (modelinde olan alanlar)
+                string phone =
+                    o?.client?.clientPhoneNumber
+                    ?? o?.client?.contactPhoneNumber
+                    ?? "-";
+
+                // Ödeme
+                string payment =
+                    o?.paymentMethodText?.tr
+                    ?? o?.paymentMethodText?.en
+                    ?? (o?.paymentMethod > 0 ? $"Ödeme Yöntemi: {o.paymentMethod}" : "-");
+
+                // Teslimat tipi
+                string deliveryType = o?.deliveryType == 2 ? "Restoran Kuryesi" : "Getir Kuryesi:"+o.courier.name.ToString(); 
+
+                // İndirim bilgisi
+                var discountedTotal = (o?.totalDiscountedPrice ?? 0m) > 0 ? o!.totalDiscountedPrice : o!.totalPrice;
+                var discount = Math.Max(0, o.totalPrice - discountedTotal);
+                bool hasDiscount = discount > 0;
+                var campaignName = hasDiscount ? "Kampanyalı Sipariş" : null;
+
+                var items = o?.products ?? new List<FoodProduct>();
+
+               
+                try
+                {
+                    var doc = QuestPDF.Fluent.Document.Create(container =>
+                    {
+                        container.Page(page =>
+                        {
+                            page.Margin(30);
+                            page.Size(PageSizes.A4);
+
+                            // HEADER
+                            page.Header().Element(header =>
+                            {
+                                header.Row(row =>
+                                {
+                                    row.RelativeItem().Column(col =>
+                                    {
+                                        col.Item().Text("Sipariş Fişi").SemiBold().FontSize(18);
+                                        col.Item().Text($"Sipariş ID: {o?.id}").FontSize(10).Light();
+                                        col.Item().Text($"Doğrulama Kodu: {o?.confirmationId ?? "-"}").FontSize(10).Light();
+                                    });
+
+                                    if (logoBytes is { Length: > 0 })
+                                        row.ConstantItem(100).AlignRight().Height(40).Image(logoBytes);
+                                });
+                            });
+
+                            // CONTENT
+                            page.Content().PaddingVertical(10).Column(col =>
+                            {
+                                page.Background().Background(Colors.White);
+                                // Sipariş Detayı
+                                col.Item().Text("Sipariş Detayı").SemiBold().FontSize(12);
+
+                                col.Item().Table(t =>
+                                {
+                                    t.ColumnsDefinition(c =>
+                                    {
+                                        c.RelativeColumn(2);
+                                        c.RelativeColumn(5);
+                                    });
+
+                                    void R(string l, string r)
+                                    {
+                                        t.Cell().PaddingVertical(2).Text(l).FontSize(10).Light();
+                                        t.Cell().PaddingVertical(2).Text(r).FontSize(10);
+                                    }
+
+                                    R("Tarih", TryDate(o?.checkoutDate));
+                                    R("Teslimat Tipi", deliveryType);
+                                    R("Ödeme", payment);
+                                    if (!string.IsNullOrWhiteSpace(o?.clientNote)) R("Sipariş Notu", o!.clientNote);
+                                    R("Müşteri", o?.client?.name ?? "-");
+                                    R("Telefon", phone);
+                                    R("Müşteri Notu", o.clientNote);
+                                });
+
+                                // Ayırıcı (border-bottom ile)
+                                col.Item()
+                                   .PaddingVertical(8)
+                                   .BorderBottom(0.5f)
+                                   .BorderColor(Colors.Grey.Lighten2);
+
+                                // Ürünler
+                                col.Item().Text("Ürünler").SemiBold().FontSize(12);
+
+                                col.Item().Table(t =>
+                                {
+                                    t.ColumnsDefinition(c =>
+                                    {
+                                        c.RelativeColumn(1);  // Adet
+                                        c.RelativeColumn(5);  // Ürün adı
+                                        c.RelativeColumn(2);  // Birim
+                                        c.RelativeColumn(2);  // Toplam
+                                    });
+
+                                    t.Header(h =>
+                                    {
+                                        h.Cell().Text("Adet").Bold();
+                                        h.Cell().Text("Ürün").Bold();
+                                        h.Cell().Text("Birim").Bold();
+                                        h.Cell().Text("Toplam").Bold();
+                                    });
+
+                                    foreach (var p in items)
+                                    {
+                                        var name = p?.name?.tr ?? p?.name?.en ?? (p?.product ?? "-");
+                                        var adet = p?.count ?? 0;
+                                        var unitPrice = p?.totalPrice ?? 0m;
+
+                                        // totalPriceWithOption varsa onu kullan, yoksa adet * birim
+                                        decimal lineTotal = (p?.totalPriceWithOption ?? 0m) > 0
+                                            ? p!.totalPriceWithOption
+                                            : unitPrice * adet;
+
+                                        t.Cell().Text(adet.ToString());
+                                        t.Cell().Text(name);
+                                        t.Cell().Text(Money(unitPrice));
+                                        t.Cell().Text(Money(lineTotal));
+                                    }
+                                });
+
+                                // Tutarlar
+                                col.Item().AlignRight().Column(rcol =>
+                                {
+                                    rcol.Item().Text($"Ara Toplam: {Money(o!.totalPrice)}").FontSize(10);
+                                    if (hasDiscount)
+                                        rcol.Item().Text($"İndirim{(campaignName != null ? $" ({campaignName})" : "")}: -{Money(discount)}").FontSize(10);
+                                    rcol.Item().Text($"İndirimli Toplam: {Money(discountedTotal)}").FontSize(12).SemiBold();
+                                });
+
+                                col.Item().PaddingTop(10)
+                                   .Text("Not: Bu fiş Getir test verilerinden üretilmiştir.")
+                                   .FontSize(9).Light();
+                            });
+
+                            // FOOTER
+                            page.Footer().AlignCenter().Text(x =>
+                            {
+                                x.Span("© ").FontSize(9);
+                                x.Span(DateTime.Now.ToString("yyyy"));
+                            });
+                        });
+                    });
+
+                    // PNG çıktı (QuestPDF bu overload’da PNG üretir)
+                    var images = doc.GenerateImages();   // istersen doc.GenerateImages(144) (dpi) kullan
+
+                    return images.First();
+                }
+                catch (Exception e)
+                {
+
+                    Console.WriteLine("msj",e.Message);
+                }
+                return new byte[10];
+               
+            }
+
+            private static string TryDate(string? iso)
+            {
+                if (DateTimeOffset.TryParse(iso, out var dt))
+                    return dt.ToLocalTime().ToString("dd.MM.yyyy HH:mm");
+                return "-";
+            }
+        }
+
 
         [HttpPost("restaurants/status/{status}/{time}")]
         public async Task<IActionResult> CloseRestaurant([FromRoute] int status, [FromRoute] int time)

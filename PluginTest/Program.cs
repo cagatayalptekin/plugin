@@ -1,12 +1,16 @@
-﻿
+﻿using QuestPDF.Infrastructure;
+
+
 namespace PluginTest
 {
     public class Program
     {
         public static void Main(string[] args)
         {
+           
             var builder = WebApplication.CreateBuilder(args);
-
+            QuestPDF.Settings.License = LicenseType.Community;
+            QuestPDF.Settings.EnableDebugging = true;
             // Add services to the container.
 
             builder.Services.AddControllers();
