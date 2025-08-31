@@ -1452,6 +1452,19 @@ namespace PluginTest.Controllers
         public int paymentMethod { get; set; }
         public PaymentMethodText paymentMethodText { get; set; }
         public bool isQueued { get; set; }
+        public string verifyDate { get; set; }                 // "string" tarih alanları
+        public string scheduleVerifiedDate { get; set; }
+        public string prepareDate { get; set; }
+        public string handoverDate { get; set; }
+        public string reachDate { get; set; }
+        public string deliverDate { get; set; }
+
+        public bool restaurantPanelOperation { get; set; }     // dokümanda var
+        public BrandInfo brand { get; set; }                   // { id, name }
+        public string cancelNote { get; set; }                 // iptal notu
+        public CancelReason cancelReason { get; set; }         // { id, messages{tr,en} }
+
+        public int calculatedCourierToRestaurantETA { get; set; } // dakikadır genelde (int)
     }
 
     public class ClientInfo
@@ -1462,6 +1475,8 @@ namespace PluginTest.Controllers
         public string clientPhoneNumber { get; set; }
         public string contactPhoneNumber { get; set; }
         public DeliveryAddress deliveryAddress { get; set; }
+        public string clientUnmaskedPhoneNumber { get; set; }  // dokümanda var (maskesiz)
+
     }
 
     public class CourierInfo
@@ -1480,6 +1495,43 @@ namespace PluginTest.Controllers
         public ProductName name { get; set; } // <-- string değil, obje!
         public decimal totalPriceWithOption { get; set; }
         public decimal totalPrice { get; set; }
+        public string imageURL { get; set; }
+        public string wideImageURL { get; set; }
+        public string chainProduct { get; set; }
+
+        public decimal price { get; set; }
+        public decimal optionPrice { get; set; }
+        public decimal priceWithOption { get; set; }
+        public decimal totalOptionPrice { get; set; }
+
+        public List<JsonElement> optionCategories { get; set; } // şekil belirsiz: generic tuttuk
+        public DisplayInfo displayInfo { get; set; }             // başlık + opsiyon yazıları
+        public string note { get; set; }
+    }
+    public class BrandInfo
+    {
+        public string id { get; set; }
+        public string name { get; set; }
+    }
+
+    public class CancelReason
+    {
+        public string id { get; set; }
+        public LocalizedText messages { get; set; } // {tr,en}
+    }
+
+    public class DisplayInfo
+    {
+        public LocalizedText title { get; set; }    // {tr,en}
+        public LocalizedStringList options { get; set; } // {tr:[...], en:[...]}
+    }
+
+     
+
+    public class LocalizedStringList
+    {
+        public List<string> tr { get; set; }
+        public List<string> en { get; set; }
     }
 
     public class ProductName
