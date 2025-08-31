@@ -184,8 +184,101 @@ namespace PluginTest.Controllers
             // 2. Adım: Token ile aktif siparişleri çek
 
         }
+        [HttpPost("food-orders/periodic/unapproved")]
+        public async Task<List<FoodOrderResponse>> GetUnapprovedOrders()
+        {
+            string token;
 
-        
+            // 1. Adım: Login ol, token al
+            using (var client = new HttpClient())
+            {
+                var loginRequest = new
+                {
+                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
+                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
+                };
+
+                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
+                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
+
+
+                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
+                token = loginResult.token;
+            }
+            using (var client = new HttpClient())
+            {
+                client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
+
+                var response = await client.PostAsync(
+                    "https://food-external-api-gateway.development.getirapi.com/food-orders/periodic/unapproved",
+                    new StringContent("", Encoding.UTF8, "application/json") // veya null da olabilir
+                );
+
+
+
+
+                var responseBody = await response.Content.ReadAsStringAsync();
+                var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(responseBody);
+                Console.WriteLine(JsonSerializer.Serialize(orders, new JsonSerializerOptions { WriteIndented = true }));
+                if (orders?.Count > 0)
+                {
+                    await GetOrderById(orders.FirstOrDefault().id);
+                }
+
+
+                return orders;
+            }
+            // 2. Adım: Token ile aktif siparişleri çek
+
+        }
+        [HttpPost("food-orders/periodic/cancelled")]
+        public async Task<List<FoodOrderResponse>> GetCancelledOrders()
+        {
+            string token;
+
+            // 1. Adım: Login ol, token al
+            using (var client = new HttpClient())
+            {
+                var loginRequest = new
+                {
+                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
+                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
+                };
+
+                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
+                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
+
+
+                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
+                token = loginResult.token;
+            }
+            using (var client = new HttpClient())
+            {
+                client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
+
+                var response = await client.PostAsync(
+                    "https://food-external-api-gateway.development.getirapi.com/food-orders/periodic/cancelled",
+                    new StringContent("", Encoding.UTF8, "application/json") // veya null da olabilir
+                );
+
+
+
+
+                var responseBody = await response.Content.ReadAsStringAsync();
+                var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(responseBody);
+                Console.WriteLine(JsonSerializer.Serialize(orders, new JsonSerializerOptions { WriteIndented = true }));
+                if (orders?.Count > 0)
+                {
+                    await GetOrderById(orders.FirstOrDefault().id);
+                }
+
+
+                return orders;
+            }
+            // 2. Adım: Token ile aktif siparişleri çek
+
+        }
+
         [HttpGet("order-detail/{foodOrderId}")]
         public async Task<IActionResult> GetOrderById(string foodOrderId)
         {
