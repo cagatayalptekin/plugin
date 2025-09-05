@@ -11,7 +11,10 @@ using System.Reflection.Metadata;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
-using QuestPDF.Drawing;   
+using QuestPDF.Drawing;
+using System.IO.Compression;
+using System.Net.Http.Headers;
+
 
 namespace PluginTest.Controllers
 {
@@ -277,6 +280,224 @@ namespace PluginTest.Controllers
             }
             // 2. Adım: Token ile aktif siparişleri çek
 
+        }
+        [HttpGet("food-orders/history-csv")]
+        [Produces("text/csv")]
+        public async Task<IActionResult> DownloadOrdersCsv(
+     [FromQuery] string startDate,
+     [FromQuery] string endDate,
+     [FromQuery] string restaurantIds,   // tek id de olabilir
+     [FromQuery] string? templateName
+ )
+        {
+            // 1) Login
+            string token;
+            using (var client = new HttpClient())
+            {
+                var loginRequest = new
+                {
+                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
+                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
+                };
+
+                var loginResp = await client.PostAsync(
+                    "https://food-external-api-gateway.development.getirapi.com/auth/login",
+                    new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json")
+                );
+                var loginBody = await loginResp.Content.ReadAsStringAsync();
+                if (!loginResp.IsSuccessStatusCode)
+                    return StatusCode((int)loginResp.StatusCode, loginBody);
+
+                var login = JsonSerializer.Deserialize<LoginResponse>(loginBody);
+                token = login?.token ?? throw new Exception("Token alınamadı.");
+            }
+
+            // 2) Query string
+            var qs = new List<string>
+    {
+        $"startDate={Uri.EscapeDataString(startDate)}",
+        $"endDate={Uri.EscapeDataString(endDate)}",
+        $"restaurantIds={Uri.EscapeDataString(restaurantIds)}"
+    };
+            if (!string.IsNullOrWhiteSpace(templateName))
+                qs.Add($"templateName={Uri.EscapeDataString(templateName)}");
+
+            var url = "https://food-external-api-gateway.development.getirapi.com/food-orders/report/details?" + string.Join("&", qs);
+
+            // 3) İstek
+            using var http = new HttpClient();
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Add("token", token);
+            // JSON veya CSV gelebilir — ikisini de kabul edelim
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/csv"));
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*"));
+
+            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+            var fileName = $"orders-{startDate}-{endDate}.csv";
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var errText = await resp.Content.ReadAsStringAsync();
+                return StatusCode((int)resp.StatusCode, errText);
+            }
+
+            var mediaType = resp.Content.Headers.ContentType?.MediaType ?? "";
+            // JSON geldiyse -> CSV’ye çevir
+            if (mediaType.Contains("json", StringComparison.OrdinalIgnoreCase))
+            {
+                var json = await resp.Content.ReadAsStringAsync();
+                var csv = JsonArrayToCsv(json);
+                // UTF-8 BOM’lu döndür (Excel için iyi olur)
+                var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv)).ToArray();
+                return File(bytes, "text/csv", fileName);
+            }
+
+            // Doğrudan CSV/binary geldiyse aynen geçir
+            var raw = await resp.Content.ReadAsByteArrayAsync();
+            var ct = string.IsNullOrWhiteSpace(mediaType) ? "text/csv" : mediaType;
+            return File(raw, ct, fileName);
+        }
+
+        // Basit ve güvenli CSV dönüştürücü: başlıkları sabit + varsa ekstra alanları sona ekler
+        private static string JsonArrayToCsv(string json)
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return "";
+
+            // Beklenen sütun sırası (örnek JSON’dan)
+            var preferred = new List<string>
+    {
+        "city","paymentMethod","deliveryType","companyName","taxNo","iban",
+        "restaurantId","branchName","restaurantName","foodOrderId","date",
+        "finalPrice","finalPriceTaxExcluded","supplierSupport","chargedAmountTaxExcluded",
+        "supplierProductRevenue","supplierProductRevenueTaxExcluded","damagedProductTotal",
+        "commissionBasketValue","commissionBasketValueTaxExcluded","damagedProductSource",
+        "netCommissionRevenue","supplierNetRevenue","loyaltyFee","totalDiscountedPrice",
+        "visibilityFeeAmount","withholdingTaxAmount","deferredPaymentDate",
+        "paymentStatus","orderStatus","partialRefundsPrice"
+    };
+
+            // Ekstra alanlar varsa yakala
+            var extras = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in doc.RootElement.EnumerateArray())
+            {
+                if (row.ValueKind != JsonValueKind.Object) continue;
+                foreach (var p in row.EnumerateObject())
+                {
+                    if (!preferred.Contains(p.Name) && !extras.Contains(p.Name))
+                        extras.Add(p.Name);
+                }
+            }
+
+            var headers = preferred.Concat(extras).ToList();
+            var sb = new StringBuilder();
+
+            // Header
+            sb.AppendLine(string.Join(",", headers.Select(EscapeCsv)));
+
+            // Rows
+            foreach (var row in doc.RootElement.EnumerateArray())
+            {
+                var cells = new List<string>(headers.Count);
+                foreach (var h in headers)
+                {
+                    string val = "";
+                    if (row.TryGetProperty(h, out var el))
+                    {
+                        val = el.ValueKind switch
+                        {
+                            JsonValueKind.String => el.GetString() ?? "",
+                            JsonValueKind.Number => el.ToString(), // kültürden bağımsız nokta
+                            JsonValueKind.True => "true",
+                            JsonValueKind.False => "false",
+                            JsonValueKind.Null => "",
+                            _ => el.ToString()    // obje/array için JSON string
+                        };
+                    }
+                    cells.Add(EscapeCsv(val));
+                }
+                sb.AppendLine(string.Join(",", cells));
+            }
+
+            return sb.ToString();
+        }
+
+        private static string EscapeCsv(string? s)
+        {
+            s ??= "";
+            // virgül, çift tırnak, satır sonu varsa -> "..." ve iç tırnakları çiftle
+            if (s.Contains(',') || s.Contains('"') || s.Contains('\n') || s.Contains('\r'))
+                return $"\"{s.Replace("\"", "\"\"")}\"";
+            return s;
+        }
+        [HttpGet("food-orders/history-rows")]
+        [Produces("application/json")]
+        public async Task<IActionResult> GetHistoryRows(
+    [FromQuery] string startDate,
+    [FromQuery] string endDate,
+    [FromQuery] string restaurantIds,   // tek id de olabilir
+    [FromQuery] string? templateName
+)
+        {
+            // (Opsiyonel ama faydalı) 7 gün guard
+            if (DateTime.TryParse(startDate, out var s) &&
+                DateTime.TryParse(endDate, out var e) &&
+                (e - s).TotalDays > 7)
+            {
+                return BadRequest(new { code = 13, error = "FinancialReportMaxDaysError", message = "maximum day limit is 7 days" });
+            }
+
+            // 1) Login
+            string token;
+            using (var client = new HttpClient())
+            {
+                var loginRequest = new
+                {
+                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
+                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
+                };
+
+                var loginResp = await client.PostAsync(
+                    "https://food-external-api-gateway.development.getirapi.com/auth/login",
+                    new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json")
+                );
+
+                var loginBody = await loginResp.Content.ReadAsStringAsync();
+                if (!loginResp.IsSuccessStatusCode)
+                    return StatusCode((int)loginResp.StatusCode, loginBody);
+
+                var login = JsonSerializer.Deserialize<LoginResponse>(loginBody);
+                token = login?.token ?? throw new Exception("Token alınamadı.");
+            }
+
+            // 2) Query string
+            var qs = new List<string>
+    {
+        $"startDate={Uri.EscapeDataString(startDate)}",
+        $"endDate={Uri.EscapeDataString(endDate)}",
+        $"restaurantIds={Uri.EscapeDataString(restaurantIds)}"
+    };  
+            templateName = "RestaurantFinancial";
+            if (!string.IsNullOrWhiteSpace(templateName))
+                qs.Add($"templateName={Uri.EscapeDataString(templateName)}");
+            
+            var url = "https://food-external-api-gateway.development.getirapi.com/food-orders/report/details?" + string.Join("&", qs);
+
+            // 3) İstek (JSON isteyelim)
+            using var http = new HttpClient();
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Add("token", token);
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+            var body = await resp.Content.ReadAsStringAsync();
+
+            if (!resp.IsSuccessStatusCode)
+                return StatusCode((int)resp.StatusCode, body);
+
+            // Upstream JSON array’ı olduğu gibi geçir
+            return Content(body, "application/json; charset=utf-8");
         }
 
         [HttpGet("order-detail/{foodOrderId}")]
