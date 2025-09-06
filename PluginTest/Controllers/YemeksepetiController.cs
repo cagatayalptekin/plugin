@@ -131,103 +131,109 @@ namespace PluginTest.Controllers
           
             return order.token;
         }
-        
+
 
         [HttpPost("update-status/{code}/{status}")]
-        public async Task<IActionResult> UpdateStatus([FromRoute]string code, [FromRoute] string status)
+        public async Task<IActionResult> UpdateStatus([FromRoute] string code, [FromRoute] string status, [FromBody] UpdateStatusBody body)
         {
-
-            //      remoteId = "agrabt123";
-            using (HttpClient client = new HttpClient())
+            // 1) Login → Bearer al
+            string token;
+            using (var client = new HttpClient())
             {
+                var loginContent = new FormUrlEncodedContent(new[]
+                {
+            new KeyValuePair<string, string>("username", "me-tr-plugin-agra-bilgi-teknolojileri-sanayi-ve-ticaret-limited-sirketi-001"),
+            new KeyValuePair<string, string>("password", "KIOLr6UqHh"),
+            new KeyValuePair<string, string>("grant_type", "client_credentials")
+        });
 
-                var content = new FormUrlEncodedContent(new[]
-            {
-    new KeyValuePair<string, string>("username", "me-tr-plugin-agra-bilgi-teknolojileri-sanayi-ve-ticaret-limited-sirketi-001"),
-    new KeyValuePair<string, string>("password", "KIOLr6UqHh"),
-    new KeyValuePair<string, string>("grant_type", "client_credentials")
-});
+                var loginResp = await client.PostAsync("https://integration-middleware-tr.me.restaurant-partners.com/v2/login", loginContent);
+                if (!loginResp.IsSuccessStatusCode)
+                    return StatusCode((int)loginResp.StatusCode, await loginResp.Content.ReadAsStringAsync());
 
-                var response = await client.PostAsync("https://integration-middleware-tr.me.restaurant-partners.com/v2/login", content);
-
-                if (!response.IsSuccessStatusCode)
-                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
-
-                var responseBody = await response.Content.ReadAsStringAsync();
-
-                // Token modelini deserialize et
-                var loginResult = JsonSerializer.Deserialize<YemeksepetiLoginResponse>(responseBody);
-                token = loginResult?.access_token; // token field'a ata
-
-
+                var loginBody = await loginResp.Content.ReadAsStringAsync();
+                var loginResult = JsonSerializer.Deserialize<YemeksepetiLoginResponse>(loginBody);
+                token = loginResult?.access_token;
+                if (string.IsNullOrEmpty(token))
+                    return StatusCode(500, "Token alınamadı.");
             }
 
+            // 2) orderToken (bulunamazsa code’a düşmek riskli olabilir; ama mevcut davranışı koruyorum)
+            var orderToken = orders?.FirstOrDefault(x => x.code == code)?.token ?? code;
 
+            // 3) DH endpoint
+            var url = $"https://integration-middleware-tr.me.restaurant-partners.com/v2/order/status/{orderToken}";
 
-            using (HttpClient client = new HttpClient())
+            // 4) Payload hazırla
+            object orderStatusRequest;
+            status = (status ?? "").Trim().ToLowerInvariant();
+
+            if (status == "accepted")
             {
-                var chainCode = "1X7UTqDJ"; // Örnek kod, gerçek kodu buraya girin
+                // acceptanceTime zorunlu, yoksa +15dk fallback
+                var acceptanceTime = !string.IsNullOrWhiteSpace(body?.acceptanceTime)
+                    ? body.acceptanceTime
+                    : DateTime.UtcNow.AddMinutes(15).ToString("o");
 
-                //  client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
-                OrderStatusUpdateRequest orderStatusRequest;
-
-               var orderToken=orders.Where(x => x.code == code).FirstOrDefault()?.token;
-              
-                //         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                var url = $"https://integration-middleware-tr.me.restaurant-partners.com/v2/order/status/{orderToken}";
-
-                   client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                if (status=="accepted")
+                orderStatusRequest = new
                 {
-                    orderStatusRequest = new OrderStatusUpdateRequest
-                    {
-                        acceptanceTime = "2016-10-05T00:00:00+05:00",
-                        status = "order_accepted",
+                    status = "order_accepted",
+                    acceptanceTime,
+                    remoteOrderId = string.IsNullOrWhiteSpace(body?.remoteOrderId) ? code : body.remoteOrderId,
+                    modifications = body?.modifications ?? new { products = Array.Empty<object>() }
+                };
+            }
+            else if (status == "rejected")
+            {
+                // Dokümana göre: reason (enum) zorunlu, message opsiyonel
+                // Hem reason/message hem de rejectionReasonId/rejectionNote isimlerini destekle
+                var reason = !string.IsNullOrWhiteSpace(body?.reason) ? body.reason : body?.rejectionReasonId;
+                var message = !string.IsNullOrWhiteSpace(body?.message) ? body.message : body?.rejectionNote;
 
-                    };
-                }
-                else if (status == "rejected")
+                if (string.IsNullOrWhiteSpace(reason))
+                    return BadRequest("order_rejected için 'reason' (enum) zorunludur.");
+
+                orderStatusRequest = new
                 {
-                      orderStatusRequest = new OrderStatusUpdateRequest
-                    {
-                        status = "order_rejected",
-                    };
-                }
-                else if (status == "pickedup")
+                    status = "order_rejected",
+                    reason = reason,
+                    message = string.IsNullOrWhiteSpace(message) ? null : message
+                };
+            }
+            else if (status == "pickedup")
+            {
+                orderStatusRequest = new
                 {
-                      orderStatusRequest = new OrderStatusUpdateRequest
-                    {
-                        status = "order_picked_up",
-                    };
-                }
-                else
-                {
-                    return BadRequest("Invalid status provided.");
-                }
-               
+                    status = "order_picked_up"
+                };
+            }
+            else
+            {
+                return BadRequest("Invalid status provided. Allowed: accepted | rejected | pickedup");
+            }
 
-                // Serialize the object to JSON
-                string jsonPayload = JsonSerializer.Serialize(orderStatusRequest);
+            // 5) Serialize (null alanları yazma)
+            var jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            };
+            var jsonPayload = JsonSerializer.Serialize(orderStatusRequest, jsonOptions);
+            var httpContent = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-                // Prepare the content to send in the POST request (application/json)
-                var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+            // 6) Çağrı
+            using (var client = new HttpClient())
+            {
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-                // Send the POST request asynchronously
-                var response = await client.PostAsync(url, content);
+                var resp = await client.PostAsync(url, httpContent);
+                var respBody = await resp.Content.ReadAsStringAsync();
 
-                if (response.IsSuccessStatusCode)
-                {
-                    Console.WriteLine("Request successful.");
-                    var responseContent = await response.Content.ReadAsStringAsync();
-                    Console.WriteLine("Response: " + responseContent);
-                }
-                else
-                {
-                    Console.WriteLine($"Request failed. Status Code: {response.StatusCode}");
-                }
+                if (!resp.IsSuccessStatusCode)
+                    return StatusCode((int)resp.StatusCode, respBody);
 
-            
-                return Ok();
+                return Ok(respBody);
             }
         }
 
@@ -394,6 +400,21 @@ namespace PluginTest.Controllers
 
 
 
+    }
+    public class UpdateStatusBody
+    {
+        // accepted için
+        public string acceptanceTime { get; set; }     // ISO-8601
+        public string remoteOrderId { get; set; }      // opsiyonel
+        public object modifications { get; set; }      // opsiyonel
+
+        // rejected için (iki isim de desteklenir)
+        public string reason { get; set; }             // tercih edilen (DH dokümanı)
+        public string message { get; set; }            // opsiyonel
+
+        // geriye dönük uyumluluk (eski isimler)
+        public string rejectionReasonId { get; set; }  // eski
+        public string rejectionNote { get; set; }      // eski
     }
 
     public class RootObject
