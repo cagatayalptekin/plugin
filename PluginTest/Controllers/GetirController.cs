@@ -1827,37 +1827,37 @@ namespace PluginTest.Controllers
     public class FoodOrderResponse
     {
         public string id { get; set; }
-        public int status { get; set; }
-        public bool isScheduled { get; set; }
-        public string confirmationId { get; set; }
-        public ClientInfo client { get; set; }
-        public CourierInfo courier { get; set; }
-        public List<FoodProduct> products { get; set; }
-        public string clientNote { get; set; }
+        public int? status { get; set; }
+        public bool? isScheduled { get; set; }
+        public string? confirmationId { get; set; }
+        public ClientInfo? client { get; set; }
+        public CourierInfo? courier { get; set; }
+        public List<FoodProduct>? products { get; set; }
+        public string? clientNote { get; set; }
         public decimal totalPrice { get; set; }
         public decimal totalDiscountedPrice { get; set; }
-        public string checkoutDate { get; set; }
-        public string scheduledDate { get; set; }
-        public int deliveryType { get; set; }
-        public bool doNotKnock { get; set; }
-        public bool isEcoFriendly { get; set; }
-        public RestaurantInfo restaurant { get; set; }
-        public int paymentMethod { get; set; }
-        public PaymentMethodText paymentMethodText { get; set; }
-        public bool isQueued { get; set; }
-        public string verifyDate { get; set; }                 // "string" tarih alanları
-        public string scheduleVerifiedDate { get; set; }
-        public string prepareDate { get; set; }
-        public string handoverDate { get; set; }
-        public string reachDate { get; set; }
-        public string deliverDate { get; set; }
+        public string? checkoutDate { get; set; }
+        public string? scheduledDate { get; set; }
+        public int? deliveryType { get; set; }
+        public bool? doNotKnock { get; set; }
+        public bool? isEcoFriendly { get; set; }
+        public RestaurantInfo? restaurant { get; set; }
+        public int? paymentMethod { get; set; }
+        public PaymentMethodText? paymentMethodText { get; set; }
+        public bool? isQueued { get; set; }
+        public string? verifyDate { get; set; }                 // "string" tarih alanları
+        public string? scheduleVerifiedDate { get; set; }
+        public string? prepareDate { get; set; }
+        public string? handoverDate { get; set; }
+        public string? reachDate { get; set; }
+        public string? deliverDate { get; set; }
 
-        public bool restaurantPanelOperation { get; set; }     // dokümanda var
-        public BrandInfo brand { get; set; }                   // { id, name }
-        public string cancelNote { get; set; }                 // iptal notu
-        public CancelReason cancelReason { get; set; }         // { id, messages{tr,en} }
+        public bool? restaurantPanelOperation { get; set; }     // dokümanda var
+        public BrandInfo? brand { get; set; }                   // { id, name }
+        public string? cancelNote { get; set; }                 // iptal notu
+        public CancelReason? cancelReason { get; set; }         // { id, messages{tr,en} }
 
-        public int calculatedCourierToRestaurantETA { get; set; } // dakikadır genelde (int)
+        public int? calculatedCourierToRestaurantETA { get; set; } // dakikadır genelde (int)
     }
 
     public class ClientInfo
