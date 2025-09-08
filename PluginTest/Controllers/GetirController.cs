@@ -118,7 +118,7 @@ namespace PluginTest.Controllers
         }
 
         [HttpPost("newOrder")]
-        public IActionResult NewOrder([FromBody] object body)
+        public IActionResult NewOrder([FromBody] FoodOrderResponse body)
         {
             Console.WriteLine("✅ Getir → NewOrder webhook tetiklendi");
 
@@ -127,20 +127,18 @@ namespace PluginTest.Controllers
             Console.WriteLine(json);
 
             // Gövde boşsa hata dön
-            using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("id", out var idProp) || string.IsNullOrWhiteSpace(idProp.GetString()))
-                return BadRequest("Body veya id eksik.");
+            
+           
 
             // SSE’ye minimal payload gönder
             var payload = JsonSerializer.Serialize(new
             {
                 source = "Getir",
                 kind = "new",
-                id = idProp.GetString(),
-                confirmationId = doc.RootElement.TryGetProperty("confirmationId", out var conf) ? conf.GetString() : null,
-                total = doc.RootElement.TryGetProperty("totalDiscountedPrice", out var tdp) && tdp.GetDecimal() > 0
-                    ? tdp.GetDecimal()
-                    : (doc.RootElement.TryGetProperty("totalPrice", out var tp) ? tp.GetDecimal() : 0),
+                 code=body.confirmationId,
+                confirmationId =body.confirmationId,
+                total =  body.totalPrice,
+                     
                 at = DateTime.UtcNow
             });
 
@@ -152,7 +150,7 @@ namespace PluginTest.Controllers
 
         // ========== CANCEL ORDER ==========
         [HttpPost("cancelOrder")]
-        [HttpPost("/cancelOrder")]
+        
         public IActionResult CancelOrder([FromBody] FoodOrderResponse body)
         {
              
@@ -166,8 +164,8 @@ namespace PluginTest.Controllers
             {
                 source = "Getir",
                 kind = "cancel",
-                id = body.id,
-                confirmationId = body.confirmationId,
+                
+                code = body.confirmationId,
                 reason = (string?)reasonTr ?? body.cancelNote ?? (string?)reasonEn,
                 at = DateTime.UtcNow
             });
@@ -1110,7 +1108,7 @@ namespace PluginTest.Controllers
 
                 // İndirim bilgisi
                 var discountedTotal = (o?.totalDiscountedPrice ?? 0m) > 0 ? o!.totalDiscountedPrice : o!.totalPrice;
-                var discount = Math.Max(0, o.totalPrice - discountedTotal);
+var discount = Math.Max(0m, (o.totalPrice ?? 0m) - (discountedTotal ?? 0m));
                 bool hasDiscount = discount > 0;
                 var campaignName = hasDiscount ? "Kampanyalı Sipariş" : null;
 
@@ -1208,8 +1206,8 @@ namespace PluginTest.Controllers
 
                                         // totalPriceWithOption varsa onu kullan, yoksa adet * birim
                                         decimal lineTotal = (p?.totalPriceWithOption ?? 0m) > 0
-                                            ? p!.totalPriceWithOption
-                                            : unitPrice * adet;
+     ? (p!.totalPriceWithOption ?? 0m)
+     : unitPrice * adet;
 
                                         t.Cell().Text(adet.ToString());
                                         t.Cell().Text(name);
@@ -1221,10 +1219,10 @@ namespace PluginTest.Controllers
                                 // Tutarlar
                                 col.Item().AlignRight().Column(rcol =>
                                 {
-                                    rcol.Item().Text($"Ara Toplam: {Money(o!.totalPrice)}").FontSize(10);
+                                    rcol.Item().Text($"Ara Toplam: {Money((o!.totalPrice ?? 0m))}").FontSize(10);
                                     if (hasDiscount)
                                         rcol.Item().Text($"İndirim{(campaignName != null ? $" ({campaignName})" : "")}: -{Money(discount)}").FontSize(10);
-                                    rcol.Item().Text($"İndirimli Toplam: {Money(discountedTotal)}").FontSize(12).SemiBold();
+                                    rcol.Item().Text($"İndirimli Toplam: {Money(discountedTotal??0m)}").FontSize(12).SemiBold();
                                 });
 
                                 col.Item().PaddingTop(10)
@@ -1846,16 +1844,7 @@ namespace PluginTest.Controllers
     }
 
     public class TokenResponse { public string Token { get; set; } = ""; }
-    public class RestaurantInfo
-    {
-        public string id { get; set; }
-        public int averagePreparationTime { get; set; }
-        public int status { get; set; } // 1 = açık, 0 = kapalı
-        public bool isCourierAvailable { get; set; }
-        public string name { get; set; }
-        public bool isStatusChangedByUser { get; set; }
-        public int closedSource { get; set; }
-    }
+    
     public class CancelOrderRequest
     {
         public string cancelNote { get; set; }
@@ -1867,9 +1856,23 @@ namespace PluginTest.Controllers
         public string id { get; set; }
         public string message { get; set; }
     }
+   
+
+ 
+
+
+
+
+
+
+
+
+
+
+
     public class FoodOrderResponse
     {
-        public string id { get; set; }
+        public string id { get; set; } = "";                  // id her zaman geliyor gibi; istersen string? yap
         public int? status { get; set; }
         public bool? isScheduled { get; set; }
         public string? confirmationId { get; set; }
@@ -1877,8 +1880,13 @@ namespace PluginTest.Controllers
         public CourierInfo? courier { get; set; }
         public List<FoodProduct>? products { get; set; }
         public string? clientNote { get; set; }
-        public decimal totalPrice { get; set; }
-        public decimal totalDiscountedPrice { get; set; }
+
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? totalPrice { get; set; }
+
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? totalDiscountedPrice { get; set; }
+
         public string? checkoutDate { get; set; }
         public string? scheduledDate { get; set; }
         public int? deliveryType { get; set; }
@@ -1888,119 +1896,163 @@ namespace PluginTest.Controllers
         public int? paymentMethod { get; set; }
         public PaymentMethodText? paymentMethodText { get; set; }
         public bool? isQueued { get; set; }
-        public string? verifyDate { get; set; }                 // "string" tarih alanları
+        public string? verifyDate { get; set; }
         public string? scheduleVerifiedDate { get; set; }
         public string? prepareDate { get; set; }
         public string? handoverDate { get; set; }
         public string? reachDate { get; set; }
         public string? deliverDate { get; set; }
 
-        public bool? restaurantPanelOperation { get; set; }     // dokümanda var
-        public BrandInfo? brand { get; set; }                   // { id, name }
-        public string? cancelNote { get; set; }                 // iptal notu
-        public CancelReason? cancelReason { get; set; }         // { id, messages{tr,en} }
+        public bool? restaurantPanelOperation { get; set; }
+        public BrandInfo? brand { get; set; }
+        public string? cancelNote { get; set; }
+        public CancelReason? cancelReason { get; set; }
 
-        public int? calculatedCourierToRestaurantETA { get; set; } // dakikadır genelde (int)
+        public int? calculatedCourierToRestaurantETA { get; set; }
     }
 
     public class ClientInfo
     {
-        public string id { get; set; }
-        public string name { get; set; }
-        public Location location { get; set; }
-        public string clientPhoneNumber { get; set; }
-        public string contactPhoneNumber { get; set; }
-        public DeliveryAddress deliveryAddress { get; set; }
-        public string clientUnmaskedPhoneNumber { get; set; }  // dokümanda var (maskesiz)
-
+        public string? id { get; set; }
+        public string? name { get; set; }
+        public Location? location { get; set; }
+        public string? clientPhoneNumber { get; set; }
+        public string? contactPhoneNumber { get; set; }
+        public DeliveryAddress? deliveryAddress { get; set; }
+        public string? clientUnmaskedPhoneNumber { get; set; }
     }
 
     public class CourierInfo
     {
-        public string id { get; set; }
-        public int status { get; set; }
-        public string name { get; set; }
-        public Location location { get; set; }
+        public string? id { get; set; }
+        public int? status { get; set; }
+        public string? name { get; set; }
+        public Location? location { get; set; }
     }
 
     public class FoodProduct
     {
-        public string id { get; set; }
-        public int count { get; set; }
-        public string product { get; set; }
-        public ProductName name { get; set; } // <-- string değil, obje!
-        public decimal totalPriceWithOption { get; set; }
-        public decimal totalPrice { get; set; }
-        public string imageURL { get; set; }
-        public string wideImageURL { get; set; }
-        public string chainProduct { get; set; }
+        public string? id { get; set; }
 
-        public decimal price { get; set; }
-        public decimal optionPrice { get; set; }
-        public decimal priceWithOption { get; set; }
-        public decimal totalOptionPrice { get; set; }
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public int? count { get; set; }
 
-        public List<JsonElement> optionCategories { get; set; } // şekil belirsiz: generic tuttuk
-        public DisplayInfo displayInfo { get; set; }             // başlık + opsiyon yazıları
-        public string note { get; set; }
+        public string? product { get; set; }
+        public ProductName? name { get; set; }
+
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? totalPriceWithOption { get; set; }
+
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? totalPrice { get; set; }
+
+        public string? imageURL { get; set; }
+        public string? wideImageURL { get; set; }
+        public string? chainProduct { get; set; }
+
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? price { get; set; }
+
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? optionPrice { get; set; }
+
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? priceWithOption { get; set; }
+
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? totalOptionPrice { get; set; }
+
+        public List<JsonElement>? optionCategories { get; set; }
+        public DisplayInfo? displayInfo { get; set; }
+        public string? note { get; set; }
     }
+
     public class BrandInfo
     {
-        public string id { get; set; }
-        public string name { get; set; }
+        public string? id { get; set; }
+        public string? name { get; set; }
     }
 
     public class CancelReason
     {
-        public string id { get; set; }
-        public LocalizedText messages { get; set; } // {tr,en}
+        public string? id { get; set; }
+        public LocalizedText? messages { get; set; } // {tr,en}
     }
 
     public class DisplayInfo
     {
-        public LocalizedText title { get; set; }    // {tr,en}
-        public LocalizedStringList options { get; set; } // {tr:[...], en:[...]}
+        public LocalizedText? title { get; set; }    // {tr,en}
+        public LocalizedStringList? options { get; set; } // {tr:[...], en:[...]}
     }
-
-     
 
     public class LocalizedStringList
     {
-        public List<string> tr { get; set; }
-        public List<string> en { get; set; }
+        public List<string>? tr { get; set; }
+        public List<string>? en { get; set; }
     }
 
     public class ProductName
     {
-        public string tr { get; set; }
-        public string en { get; set; }
+        public string? tr { get; set; }
+        public string? en { get; set; }
     }
 
     public class Location
     {
-        public double lat { get; set; }
-        public double lon { get; set; }
+        public double? lat { get; set; }
+        public double? lon { get; set; }
     }
 
     public class DeliveryAddress
     {
-        public string id { get; set; }
-        public string address { get; set; }
-        public string aptNo { get; set; }
-        public string floor { get; set; }
-        public string doorNo { get; set; }
-        public string city { get; set; }
-        public string district { get; set; }
-        public string description { get; set; }
+        public string? id { get; set; }
+        public string? address { get; set; }
+        public string? aptNo { get; set; }
+        public string? floor { get; set; }
+        public string? doorNo { get; set; }
+        public string? city { get; set; }
+        public string? district { get; set; }
+        public string? description { get; set; }
     }
-
-
 
     public class PaymentMethodText
     {
-        public string tr { get; set; }
-        public string en { get; set; }
+        public string? tr { get; set; }
+        public string? en { get; set; }
     }
+
+    public class RestaurantInfo
+    {
+        public string? id { get; set; }
+        public int? averagePreparationTime { get; set; }
+
+        // Getir bazen 0/1/100/200 gibi sayılar gönderebilir, bazen string? emin değilsen:
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public int? status { get; set; }
+
+        public bool? isCourierAvailable { get; set; }
+        public string? name { get; set; }
+        public bool? isStatusChangedByUser { get; set; }
+        public int? closedSource { get; set; }
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
 
     public class LoginRequest
     {
