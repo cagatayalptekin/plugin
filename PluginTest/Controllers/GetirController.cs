@@ -24,8 +24,13 @@ namespace PluginTest.Controllers
     {
         private readonly IWebHostEnvironment _env;
 
-        public GetirController(IWebHostEnvironment env)
+        private readonly OrderStream _orderStream;
+        public GetirController(OrderStream orderStream, IConfiguration cfg, IWebHostEnvironment env)
         {
+            _orderStream = orderStream;
+            // appsettings.json:  "Getir": { "XApiKey": "..." }
+            // veya ENV: GETIR_X_API_KEY
+           
             _env = env;
         }
 
@@ -72,6 +77,80 @@ namespace PluginTest.Controllers
 
             return Content(body, "application/json");
         }
+
+        [HttpPost("newOrder")]
+        [HttpPost("/newOrder")]
+        public IActionResult NewOrder([FromBody] FoodOrderResponse body)
+        {
+            Console.WriteLine("new ordera sipariş düştüAAAAAAAAAAAAAAAAAAAAA");
+            Console.WriteLine(JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = true }));
+            if (body is null || string.IsNullOrWhiteSpace(body.id))
+                return BadRequest("Body veya id eksik.");
+
+            // (Opsiyonel) hafızaya al
+            
+
+            // SSE'ye yayınlanacak minimal payload
+            var payload = JsonSerializer.Serialize(new
+            {
+                source = "Getir",
+                kind = "new",
+                id = body.id,
+                confirmationId = body.confirmationId,
+                total = body.totalDiscountedPrice != 0 ? body.totalDiscountedPrice : body.totalPrice,
+                customer = body.client?.name,
+                at = DateTime.UtcNow
+            });
+
+            _ = _orderStream.PublishAsync(payload); // SSE kanalına gönder
+
+            return Ok(new { ok = true });
+        }
+
+        // ========== CANCEL ORDER ==========
+        [HttpPost("cancelOrder")]
+        [HttpPost("/cancelOrder")]
+        public IActionResult CancelOrder([FromBody] FoodOrderResponse body)
+        {
+             
+            if (body is null || string.IsNullOrWhiteSpace(body.id))
+                return BadRequest("Body veya id eksik.");
+
+            var reasonTr = body.cancelReason?.messages?.Tr;
+            var reasonEn = body.cancelReason?.messages?.En;
+
+            var payload = JsonSerializer.Serialize(new
+            {
+                source = "Getir",
+                kind = "cancel",
+                id = body.id,
+                confirmationId = body.confirmationId,
+                reason = (string?)reasonTr ?? body.cancelNote ?? (string?)reasonEn,
+                at = DateTime.UtcNow
+            });
+
+            _ = _orderStream.PublishAsync(payload); // SSE kanalına gönder
+
+            return Ok(new { ok = true });
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         public class DisableCourierDto { public int? TimeOffAmount { get; set; } } // dk cinsinden
 
