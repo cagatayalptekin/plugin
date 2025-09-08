@@ -78,27 +78,32 @@ namespace PluginTest.Controllers
             return Content(body, "application/json");
         }
 
+     
+
         [HttpPost("newOrder")]
-        [HttpPost("/newOrder")]
-        public IActionResult NewOrder([FromBody] FoodOrderResponse body)
+        public IActionResult NewOrder([FromBody] object body)
         {
-            Console.WriteLine("new ordera sipariş düştüAAAAAAAAAAAAAAAAAAAAA");
-            Console.WriteLine(JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = true }));
-            if (body is null || string.IsNullOrWhiteSpace(body.id))
+            Console.WriteLine("✅ Getir → NewOrder webhook tetiklendi");
+
+            // Ham JSON’u pretty-print et
+            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = true });
+            Console.WriteLine(json);
+
+            // Gövde boşsa hata dön
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("id", out var idProp) || string.IsNullOrWhiteSpace(idProp.GetString()))
                 return BadRequest("Body veya id eksik.");
 
-            // (Opsiyonel) hafızaya al
-            
-
-            // SSE'ye yayınlanacak minimal payload
+            // SSE’ye minimal payload gönder
             var payload = JsonSerializer.Serialize(new
             {
                 source = "Getir",
                 kind = "new",
-                id = body.id,
-                confirmationId = body.confirmationId,
-                total = body.totalDiscountedPrice != 0 ? body.totalDiscountedPrice : body.totalPrice,
-                customer = body.client?.name,
+                id = idProp.GetString(),
+                confirmationId = doc.RootElement.TryGetProperty("confirmationId", out var conf) ? conf.GetString() : null,
+                total = doc.RootElement.TryGetProperty("totalDiscountedPrice", out var tdp) && tdp.GetDecimal() > 0
+                    ? tdp.GetDecimal()
+                    : (doc.RootElement.TryGetProperty("totalPrice", out var tp) ? tp.GetDecimal() : 0),
                 at = DateTime.UtcNow
             });
 
@@ -106,6 +111,7 @@ namespace PluginTest.Controllers
 
             return Ok(new { ok = true });
         }
+
 
         // ========== CANCEL ORDER ==========
         [HttpPost("cancelOrder")]

@@ -5,6 +5,10 @@
     {
       "AbsoluteMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|c:\\users\\90539\\desktop\\plgtest\\plugintest\\controllers\\getircontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|solutionrelative:plugintest\\controllers\\getircontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|c:\\users\\90539\\desktop\\plgtest\\plugintest\\controllers\\yemeksepeticontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{1D3BF5D9-DE83-4DDD-8D51-D72BACF665AF}|PluginTest\\PluginTest.csproj|solutionrelative:plugintest\\controllers\\yemeksepeticontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
   "DocumentGroupContainers": [
@@ -14,7 +18,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 11,
+          "SelectedChildIndex": 12,
           "Children": [
             {
               "$type": "Bookmark",
@@ -62,13 +66,26 @@
             },
             {
               "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "YemeksepetiController.cs",
+              "DocumentMoniker": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\Controllers\\YemeksepetiController.cs",
+              "RelativeDocumentMoniker": "PluginTest\\Controllers\\YemeksepetiController.cs",
+              "ToolTip": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\Controllers\\YemeksepetiController.cs",
+              "RelativeToolTip": "PluginTest\\Controllers\\YemeksepetiController.cs",
+              "ViewState": "AQIAADIAAAAAAAAAAAAswBMAAABJAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-09-08T16:58:46.616Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
               "DocumentIndex": 0,
               "Title": "GetirController.cs",
               "DocumentMoniker": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\Controllers\\GetirController.cs",
               "RelativeDocumentMoniker": "PluginTest\\Controllers\\GetirController.cs",
               "ToolTip": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\Controllers\\GetirController.cs",
               "RelativeToolTip": "PluginTest\\Controllers\\GetirController.cs",
-              "ViewState": "AQIAACIHAAAAAAAAAAAswCwHAAArAAAA",
+              "ViewState": "AQIAAEoAAAAAAAAAAAAAAFsAAAAjAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2025-09-08T14:59:53.09Z",
               "EditorCaption": ""
