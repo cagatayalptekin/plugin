@@ -78,7 +78,44 @@ namespace PluginTest.Controllers
             return Content(body, "application/json");
         }
 
-     
+        [HttpGet("orders/stream")]
+        public async Task Stream(CancellationToken ct)
+        {
+            Response.Headers.Add("Content-Type", "text/event-stream");
+            Response.Headers.Add("Cache-Control", "no-cache");
+            Response.Headers.Add("Connection", "keep-alive");
+            Response.Headers.Add("X-Accel-Buffering", "no"); // nginx/proxy buffer kapat
+
+            // İlk keepalive
+            await Response.WriteAsync($": connected {DateTime.UtcNow:o}\n\n", ct);
+            await Response.Body.FlushAsync(ct);
+
+            var reader = _orderStream.Reader;
+
+            while (!ct.IsCancellationRequested)
+            {
+                // Kanalda veri bekle + 15sn'de bir keepalive gönder
+                var waitTask = reader.WaitToReadAsync(ct).AsTask();
+                var delayTask = Task.Delay(TimeSpan.FromSeconds(15), ct);
+                var completed = await Task.WhenAny(waitTask, delayTask);
+
+                if (completed == waitTask && waitTask.Result)
+                {
+                    while (reader.TryRead(out var msg))
+                    {
+                        await Response.WriteAsync($"event: new-order\n", ct);
+                        await Response.WriteAsync($"data: {msg}\n\n", ct);
+                        await Response.Body.FlushAsync(ct);
+                    }
+                }
+                else
+                {
+                    // keepalive yorumu (SSE yorum satırı)
+                    await Response.WriteAsync($": keepalive {DateTime.UtcNow:o}\n\n", ct);
+                    await Response.Body.FlushAsync(ct);
+                }
+            }
+        }
 
         [HttpPost("newOrder")]
         public IActionResult NewOrder([FromBody] object body)
