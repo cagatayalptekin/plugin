@@ -1,24 +1,24 @@
 ﻿using QuestPDF.Infrastructure;
 
-
 namespace PluginTest
 {
     public class Program
     {
         public static void Main(string[] args)
         {
-           
             var builder = WebApplication.CreateBuilder(args);
             QuestPDF.Settings.License = LicenseType.Community;
             QuestPDF.Settings.EnableDebugging = true;
-            // Add services to the container.
 
+            // Controllers
             builder.Services.AddControllers();
-            // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen();
-            var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-            builder.WebHost.UseUrls($"http://*:{port}");
+
+            // 🔴 SSE publish için singleton kanal
+            builder.Services.AddSingleton<OrderStream>();
+
+            // CORS
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowAll", policy =>
@@ -30,31 +30,39 @@ namespace PluginTest
                 });
             });
 
-            builder.Services.AddControllers();
+            var port = Environment.GetEnvironmentVariable("PORT") ?? "8080"; // ← (typo fix: sondaki 'a' kalktı)
+            builder.WebHost.UseUrls($"http://*:{port}");
 
             var app = builder.Build();
 
-
- 
-            // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();
                 app.UseSwaggerUI();
             }
 
-            app.UseCors("AllowAll"); // Herkese izin
-
-
+            app.UseCors("AllowAll");
             app.UseAuthorization();
 
-            app.UseDefaultFiles();     
-            app.UseStaticFiles();      
+            // Angular statikleri
+            app.UseDefaultFiles();
+            app.UseStaticFiles();
 
             app.MapControllers();
             app.MapFallbackToFile("index.html"); // /api dışındaki tüm yollar Angular'a düşer
 
             app.Run();
         }
+    }
+
+    // 🔴 Basit SSE kanalı (string JSON taşır)
+    public class OrderStream
+    {
+        private readonly System.Threading.Channels.Channel<string> _channel =
+            System.Threading.Channels.Channel.CreateUnbounded<string>();
+
+        public System.Threading.Channels.ChannelReader<string> Reader => _channel.Reader;
+
+        public ValueTask PublishAsync(string message) => _channel.Writer.WriteAsync(message);
     }
 }

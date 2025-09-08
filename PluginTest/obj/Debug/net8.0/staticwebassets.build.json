@@ -1,6 +1,6 @@
 {
   "Version": 1,
-  "Hash": "uF4EoMQ6we7lf/2VJJwRqSRc7zn1RDAWdGlSUktEips=",
+  "Hash": "LyxfQcROYOCjX7EJUeKUQYfUBMcg9/mvkHZiRXcTEAI=",
   "Source": "PluginTest",
   "BasePath": "_content/PluginTest",
   "Mode": "Default",
@@ -131,12 +131,12 @@
       "OriginalItemSpec": "wwwroot\\index.html"
     },
     {
-      "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\main-OGSZGZYI.js",
+      "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\main-UB4CTU2O.js",
       "SourceId": "PluginTest",
       "SourceType": "Discovered",
       "ContentRoot": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\",
       "BasePath": "_content/PluginTest",
-      "RelativePath": "main-OGSZGZYI.js",
+      "RelativePath": "main-UB4CTU2O.js",
       "AssetKind": "All",
       "AssetMode": "All",
       "AssetRole": "Primary",
@@ -147,7 +147,7 @@
       "AssetTraitValue": "",
       "CopyToOutputDirectory": "Never",
       "CopyToPublishDirectory": "PreserveNewest",
-      "OriginalItemSpec": "wwwroot\\main-OGSZGZYI.js"
+      "OriginalItemSpec": "wwwroot\\main-UB4CTU2O.js"
     },
     {
       "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\primeicons-4GST5W3O.woff2",
@@ -283,12 +283,12 @@
       "OriginalItemSpec": "wwwroot\\scripts-IGA7JNQP.js"
     },
     {
-      "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\styles-3VNWHHHS.css",
+      "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\styles-PBUJBLQM.css",
       "SourceId": "PluginTest",
       "SourceType": "Discovered",
       "ContentRoot": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\",
       "BasePath": "_content/PluginTest",
-      "RelativePath": "styles-3VNWHHHS.css",
+      "RelativePath": "styles-PBUJBLQM.css",
       "AssetKind": "All",
       "AssetMode": "All",
       "AssetRole": "Primary",
@@ -299,7 +299,7 @@
       "AssetTraitValue": "",
       "CopyToOutputDirectory": "Never",
       "CopyToPublishDirectory": "PreserveNewest",
-      "OriginalItemSpec": "wwwroot\\styles-3VNWHHHS.css"
+      "OriginalItemSpec": "wwwroot\\styles-PBUJBLQM.css"
     },
     {
       "Identity": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\uploads\\getir-logo.png",

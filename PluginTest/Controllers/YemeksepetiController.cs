@@ -3,6 +3,8 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using PluginTest;                    // OrderStream için
+using System.Threading.Channels;     // (gerek duyulabilir)
 
 namespace PluginTest.Controllers
 {
@@ -10,9 +12,15 @@ namespace PluginTest.Controllers
     [Route("api/yemeksepeti")]
     public class YemeksepetiController : Controller
     {
+        private readonly OrderStream _orderStream;               // 🔴 SSE publish
         public List<string> OrderIdentifiers;
         public static List<YemeksepetiOrderModel> orders = new();
         public string token { get; set; }
+
+        public YemeksepetiController(OrderStream orderStream)    // 🔴 DI
+        {
+            _orderStream = orderStream;
+        }
 
         public IActionResult Index() => View();
 
@@ -92,7 +100,64 @@ namespace PluginTest.Controllers
             }
 
             orders.Add(order);
+
+            // 🔴 SSE'ye yayınla (minimal payload)
+            var payload = JsonSerializer.Serialize(new
+            {
+                type = "yemeksepeti",
+                code = string.IsNullOrWhiteSpace(order.code) ? order.token : order.code,
+                token = order.token,
+                total = order.price?.grandTotal,
+                customer = new
+                {
+                    order.customer?.firstName,
+                    order.customer?.lastName
+                },
+                at = DateTime.UtcNow
+            });
+            _ = _orderStream.PublishAsync(payload);
+
             return order.token; // kabul edildi
+        }
+
+        // 🔴 SSE endpoint (FE: /api/yemeksepeti/orders/stream)
+        [HttpGet("orders/stream")]
+        public async Task Stream(CancellationToken ct)
+        {
+            Response.Headers.Add("Content-Type", "text/event-stream");
+            Response.Headers.Add("Cache-Control", "no-cache");
+            Response.Headers.Add("Connection", "keep-alive");
+            Response.Headers.Add("X-Accel-Buffering", "no"); // nginx/proxy buffer kapat
+
+            // İlk keepalive
+            await Response.WriteAsync($": connected {DateTime.UtcNow:o}\n\n", ct);
+            await Response.Body.FlushAsync(ct);
+
+            var reader = _orderStream.Reader;
+
+            while (!ct.IsCancellationRequested)
+            {
+                // Kanalda veri bekle + 15sn'de bir keepalive gönder
+                var waitTask = reader.WaitToReadAsync(ct).AsTask();
+                var delayTask = Task.Delay(TimeSpan.FromSeconds(15), ct);
+                var completed = await Task.WhenAny(waitTask, delayTask);
+
+                if (completed == waitTask && waitTask.Result)
+                {
+                    while (reader.TryRead(out var msg))
+                    {
+                        await Response.WriteAsync($"event: new-order\n", ct);
+                        await Response.WriteAsync($"data: {msg}\n\n", ct);
+                        await Response.Body.FlushAsync(ct);
+                    }
+                }
+                else
+                {
+                    // keepalive yorumu (SSE yorum satırı)
+                    await Response.WriteAsync($": keepalive {DateTime.UtcNow:o}\n\n", ct);
+                    await Response.Body.FlushAsync(ct);
+                }
+            }
         }
 
         // === Order Status Update ===
@@ -167,7 +232,6 @@ namespace PluginTest.Controllers
         }
 
         // === Availability (GET proxy) ===
-        // FE: GET /api/yemeksepeti/availability?chainCode=..&posVendorId=..
         [HttpGet("availability")]
         public async Task<IActionResult> GetAvailability([FromQuery] string chainCode, [FromQuery] string posVendorId)
         {
@@ -183,19 +247,17 @@ namespace PluginTest.Controllers
 
             var resp = await client.GetAsync(url);
             if (resp.StatusCode == System.Net.HttpStatusCode.NoContent)
-                return StatusCode(204); // Doküman: sonucu henüz hazır değil → birkaç sn sonra tekrar deneyin
+                return StatusCode(204);
 
             var raw = await resp.Content.ReadAsStringAsync();
             if (!resp.IsSuccessStatusCode)
                 return StatusCode((int)resp.StatusCode, raw);
 
-            // 200 → dizi dönüyor
             var data = JsonSerializer.Deserialize<List<AvailabilityItem>>(raw, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
             return Ok(data);
         }
 
         // === Availability (SET proxy) ===
-        // FE: POST /api/yemeksepeti/availability  (body aşağıdaki SetAvailabilityBody)
         [HttpPost("availability")]
         public async Task<IActionResult> SetAvailability([FromBody] SetAvailabilityBody body)
         {
@@ -223,14 +285,12 @@ namespace PluginTest.Controllers
             string bearer;
             try { bearer = await GetBearerAsync(); } catch (Exception ex) { return StatusCode(500, ex.Message); }
 
-            // platformRestaurantId sayısal ise sayı, değilse string gönderelim
             object prIdObj;
             if (long.TryParse(body.platformRestaurantId, out var prNum))
                 prIdObj = prNum;
             else
                 prIdObj = body.platformRestaurantId;
 
-            // DH PUT payload
             var payload = new Dictionary<string, object?>
             {
                 ["availabilityState"] = state,
