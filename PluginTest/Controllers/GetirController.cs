@@ -14,6 +14,9 @@ using QuestPDF.Infrastructure;
 using QuestPDF.Drawing;
 using System.IO.Compression;
 using System.Net.Http.Headers;
+using Microsoft.Extensions.Options;
+using PluginTest.Infrastructure;
+using PluginTest.Options;
 
 
 namespace PluginTest.Controllers
@@ -24,15 +27,22 @@ namespace PluginTest.Controllers
     {
         private readonly IWebHostEnvironment _env;
 
+        private readonly IHttpClientFactory _http;
+        private readonly GetirOptions _opt;
         private readonly OrderStream _orderStream;
-        public GetirController(OrderStream orderStream, IConfiguration cfg, IWebHostEnvironment env)
+        private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+        public GetirController(IWebHostEnvironment env,
+            OrderStream orderStream,
+            IOptions<GetirOptions> opt,
+            IHttpClientFactory http)
         {
             _orderStream = orderStream;
-            // appsettings.json:  "Getir": { "XApiKey": "..." }
-            // veya ENV: GETIR_X_API_KEY
-           
+            _opt = opt.Value;
+            _http = http;
             _env = env;
         }
+     
 
         public static CourierNotificationDto courierNotification = new();
         public string token { get; set; }
@@ -45,7 +55,6 @@ namespace PluginTest.Controllers
         private const string AppSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d";
         private const string RestaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b";
         
-        private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
         private async Task<string> GetTokenAsync()
         {
@@ -78,72 +87,25 @@ namespace PluginTest.Controllers
             return Content(body, "application/json");
         }
 
-        [HttpGet("orders/stream")]
-        public async Task Stream(CancellationToken ct)
-        {
-            Response.Headers.Add("Content-Type", "text/event-stream");
-            Response.Headers.Add("Cache-Control", "no-cache");
-            Response.Headers.Add("Connection", "keep-alive");
-            Response.Headers.Add("X-Accel-Buffering", "no"); // nginx/proxy buffer kapat
 
-            // İlk keepalive
-            await Response.WriteAsync($": connected {DateTime.UtcNow:o}\n\n", ct);
-            await Response.Body.FlushAsync(ct);
-
-            var reader = _orderStream.Reader;
-
-            while (!ct.IsCancellationRequested)
-            {
-                // Kanalda veri bekle + 15sn'de bir keepalive gönder
-                var waitTask = reader.WaitToReadAsync(ct).AsTask();
-                var delayTask = Task.Delay(TimeSpan.FromSeconds(15), ct);
-                var completed = await Task.WhenAny(waitTask, delayTask);
-
-                if (completed == waitTask && waitTask.Result)
-                {
-                    while (reader.TryRead(out var msg))
-                    {
-                        await Response.WriteAsync($"event: new-order\n", ct);
-                        await Response.WriteAsync($"data: {msg}\n\n", ct);
-                        await Response.Body.FlushAsync(ct);
-                    }
-                }
-                else
-                {
-                    // keepalive yorumu (SSE yorum satırı)
-                    await Response.WriteAsync($": keepalive {DateTime.UtcNow:o}\n\n", ct);
-                    await Response.Body.FlushAsync(ct);
-                }
-            }
-        }
 
         [HttpPost("newOrder")]
         public IActionResult NewOrder([FromBody] FoodOrderResponse body)
         {
-            Console.WriteLine("✅ Getir → NewOrder webhook tetiklendi");
+             
 
-            // Ham JSON’u pretty-print et
-            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions { WriteIndented = true });
-            Console.WriteLine(json);
-
-            // Gövde boşsa hata dön
-            
+            // Yalnızca gerekli alanları çek (PII loglama yok)
            
-
-            // SSE’ye minimal payload gönder
             var payload = JsonSerializer.Serialize(new
             {
                 source = "Getir",
                 kind = "new",
-                 code=body.confirmationId,
-                confirmationId =body.confirmationId,
-                total =  body.totalPrice,
-                     
+                code = body.confirmationId ?? Guid.NewGuid().ToString("N"),
+                total = body.totalPrice,
                 at = DateTime.UtcNow
             });
 
-            _ = _orderStream.PublishAsync(payload); // SSE kanalına gönder
-
+            _orderStream.Publish(payload);
             return Ok(new { ok = true });
         }
 
@@ -153,25 +115,17 @@ namespace PluginTest.Controllers
         
         public IActionResult CancelOrder([FromBody] FoodOrderResponse body)
         {
-             
-            if (body is null || string.IsNullOrWhiteSpace(body.id))
-                return BadRequest("Body veya id eksik.");
-
-            var reasonTr = body.cancelReason?.messages?.Tr;
-            var reasonEn = body.cancelReason?.messages?.En;
-
+ 
             var payload = JsonSerializer.Serialize(new
             {
                 source = "Getir",
                 kind = "cancel",
-                
                 code = body.confirmationId,
-                reason = (string?)reasonTr ?? body.cancelNote ?? (string?)reasonEn,
+                total = body.totalPrice,
                 at = DateTime.UtcNow
             });
 
-            _ = _orderStream.PublishAsync(payload); // SSE kanalına gönder
-
+            _orderStream.Publish(payload);
             return Ok(new { ok = true });
         }
 

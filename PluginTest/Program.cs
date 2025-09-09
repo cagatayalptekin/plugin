@@ -1,4 +1,7 @@
-﻿using QuestPDF.Infrastructure;
+﻿using PluginTest.Infrastructure;
+using PluginTest.Options;
+using QuestPDF.Infrastructure;
+ 
 
 namespace PluginTest
 {
@@ -15,18 +18,27 @@ namespace PluginTest
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen();
 
-            // 🔴 SSE publish için singleton kanal
             builder.Services.AddSingleton<OrderStream>();
+            builder.Services.AddMemoryCache();
+            builder.Services.AddHttpClient(); // genel fabrika
+
+            builder.Services.Configure<GetirOptions>(builder.Configuration.GetSection("Getir"));
+            // "Yemeksepeti": { "LoginUrl": "...", "Username": "...", "Password": "..." }
+            builder.Services.Configure<YemeksepetiOptions>(builder.Configuration.GetSection("Yemeksepeti"));
+
 
             // CORS
             builder.Services.AddCors(options =>
             {
-                options.AddPolicy("AllowAll", policy =>
+                options.AddPolicy("AppOnly", policy =>
                 {
-                    policy
-                        .AllowAnyOrigin()
-                        .AllowAnyHeader()
-                        .AllowAnyMethod();
+                    policy.WithOrigins(
+                        "https://plugin-4.onrender.com",
+                        "http://localhost:4200"
+                    )
+                    .AllowAnyHeader()
+                    .AllowAnyMethod()
+                    .AllowCredentials(); // gerekirse
                 });
             });
 
@@ -41,7 +53,7 @@ namespace PluginTest
                 app.UseSwaggerUI();
             }
 
-            app.UseCors("AllowAll");
+            app.UseCors("AppOnly");
             app.UseAuthorization();
 
             // Angular statikleri
@@ -56,13 +68,5 @@ namespace PluginTest
     }
 
     // 🔴 Basit SSE kanalı (string JSON taşır)
-    public class OrderStream
-    {
-        private readonly System.Threading.Channels.Channel<string> _channel =
-            System.Threading.Channels.Channel.CreateUnbounded<string>();
-
-        public System.Threading.Channels.ChannelReader<string> Reader => _channel.Reader;
-
-        public ValueTask PublishAsync(string message) => _channel.Writer.WriteAsync(message);
-    }
+ 
 }
