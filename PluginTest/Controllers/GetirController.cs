@@ -294,12 +294,20 @@ namespace PluginTest.Controllers
 
 
                 var responseBody = await response.Content.ReadAsStringAsync();
-                var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(responseBody);
-                Console.WriteLine(JsonSerializer.Serialize(orders, new JsonSerializerOptions { WriteIndented = true }));
-                if (orders?.Count > 0)
+                var opts = new JsonSerializerOptions
                 {
-                    await GetOrderById(orders.FirstOrDefault().id);
-                }
+                    PropertyNameCaseInsensitive = true,
+                    NumberHandling = JsonNumberHandling.AllowReadingFromString
+                };
+
+               
+
+                var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(responseBody,opts);
+                Console.WriteLine(JsonSerializer.Serialize(orders, new JsonSerializerOptions { WriteIndented = true }));
+                //if (orders?.Count > 0)
+                //{
+                //    await GetOrderById(orders.FirstOrDefault().id);
+                //}
          
            
                 return orders;
@@ -624,7 +632,7 @@ namespace PluginTest.Controllers
         public async Task<IActionResult> GetOrderById(string foodOrderId)
         {
             string token;
-            Console.WriteLine("food id is that"+foodOrderId);
+            
             // 1. Adım: Login olup token al
             using (var client = new HttpClient())
             {
