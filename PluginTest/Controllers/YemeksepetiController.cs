@@ -469,7 +469,7 @@ public class YemeksepetiController : Controller
 
     // === Demo: FE sipariş listesi ===
     [HttpPost("get-orders")]
-    public async Task<List<YemeksepetiOrderModel>> GetOrders()
+    public async Task<List<YemeksepetiOrderModel>> GetOrders(List<YemeksepetiOrderModel> orders)
     {
         Console.WriteLine("im here get orders");
         foreach (var order in orders)
