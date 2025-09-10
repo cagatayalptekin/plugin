@@ -34,23 +34,16 @@ public class YemeksepetiController : Controller
         _opt = opt.Value;
     }
     [HttpPost("order/{remoteId}")]
-    public IActionResult PostOrder([FromRoute] string remoteId, [FromBody] JsonElement order)
+    public IActionResult PostOrder([FromRoute] string remoteId,YemeksepetiOrderModel order)
     {
-        if (string.IsNullOrWhiteSpace(remoteId) || order.ValueKind == JsonValueKind.Null)
-            return BadRequest("Eksik veri.");
-
-        var code = order.TryGetProperty("code", out var c) ? c.GetString() : null;
-        var token = order.TryGetProperty("token", out var tk) ? tk.GetString() : null;
-        decimal? total = null;
-        if (order.TryGetProperty("price", out var p) && p.TryGetProperty("grandTotal", out var gt) && gt.TryGetDecimal(out var dec))
-            total = dec;
+     
 
         var payload = JsonSerializer.Serialize(new
         {
             source = "Yemeksepeti",
             kind = "new",
-            code = code ?? token ?? remoteId,
-            total,
+            code = order.code,
+            order.price,
             at = DateTime.UtcNow
         });
 
