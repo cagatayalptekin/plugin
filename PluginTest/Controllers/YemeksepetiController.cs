@@ -9,6 +9,7 @@ using System.Threading.Channels;     // (gerek duyulabilir)
 using PluginTest.Options;
 namespace PluginTest.Controllers;
 using Microsoft.Extensions.Options;
+using System.Globalization;
 
 [ApiController]
 [Route("api/yemeksepeti")]
@@ -21,11 +22,11 @@ public class YemeksepetiController : Controller
 
     private readonly OrderStream _orderStream;
     private readonly IHttpClientFactory _http;
-    private readonly YemeksepetiOptions _opt;
+    private readonly YemeksepetiMapOptions _opt;
 
     public YemeksepetiController(
         OrderStream orderStream,
-        IOptions<YemeksepetiOptions> opt,
+        IOptions<YemeksepetiMapOptions> opt,
         IHttpClientFactory http)
     {
         _orderStream = orderStream;
@@ -111,11 +112,191 @@ public class YemeksepetiController : Controller
         }
     }
 
+
+
+
+
+
+
+
+    // ===========================
+    // === MAP / ROUTE SECTION ===
+    // ===========================
+
+    public class MapPointDto
+    {
+        public double? Lat { get; set; }
+        public double? Lng { get; set; }
+        public string? Label { get; set; }   // "Restaurant" | "Customer"
+        public string? Address { get; set; } // geocode te fallback için
+    }
+
+    public class YsOrderRouteRequestDto
+    {
+        // mode: "r2c" (Restaurant -> Customer). İlerde "c2c" eklenebilir.
+        public string? Mode { get; set; }
+        public YemeksepetiOrderModel? Order { get; set; }
+    }
+
+    public class YsOrderRouteResponseDto
+    {
+        public MapPointDto From { get; set; } = new();
+        public MapPointDto To { get; set; } = new();
+        public double DistanceMeters { get; set; }
+        public double DurationSeconds { get; set; }
+        public List<double[]> Coordinates { get; set; } = new(); // [lat,lng]
+    }
+
+    private static readonly HttpClient _httpMap = new HttpClient(new HttpClientHandler
+    {
+        AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate
+    });
+
+    static YemeksepetiController()
+    {
+        _httpMap.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("pos-web-ui", "1.0"));
+    }
+
+    [HttpPost("map/route-for-order")]
+    public async Task<ActionResult<YsOrderRouteResponseDto>> RouteForOrder([FromBody] YsOrderRouteRequestDto body, CancellationToken ct)
+    {
+        if (body?.Order == null) return BadRequest("order gerekli");
+
+        var mode = (body.Mode ?? "r2c").Trim().ToLowerInvariant();
+        if (mode != "r2c") return BadRequest("Şu an yalnızca 'r2c' (Restoran→Müşteri) destekleniyor.");
+
+        // TO (Müşteri): adres stringini kur → geocode
+        var toAddr = BuildCustomerAddressString(body.Order);
+        if (string.IsNullOrWhiteSpace(toAddr))
+            return BadRequest("Müşteri adresi eksik.");
+
+        var to = await GeocodeAsync(toAddr, ct);
+        if (to == null) return BadRequest("Müşteri adresi çözülemedi.");
+
+        // FROM (Restoran): Options’tan lat/lng bekliyoruz
+        (double lat, double lng)? from = null;
+        if (_opt.RestaurantLat.HasValue && _opt.RestaurantLng.HasValue)
+        {
+            from = (_opt.RestaurantLat.Value, _opt.RestaurantLng.Value);
+        }
+        else if (!string.IsNullOrWhiteSpace(_opt.RestaurantAddress))
+        {
+            var g = await GeocodeAsync(_opt.RestaurantAddress!, ct);
+            if (g != null) from = g.Value;
+        }
+
+        if (from == null)
+            return BadRequest("Restoran konumu yapılandırılmadı. (YemeksepetiOptions.RestaurantLat/Lng veya RestaurantAddress)");
+
+        // OSRM rota
+        var route = await OsrmRouteAsync(from.Value, to.Value, ct);
+        if (route == null) return StatusCode(502, "Rota hesaplanamadı.");
+
+        var (dist, dur, coords) = route.Value;
+
+        var resp = new YsOrderRouteResponseDto
+        {
+            From = new MapPointDto { Lat = from.Value.lat, Lng = from.Value.lng, Label = "Restaurant" },
+            To = new MapPointDto { Lat = to.Value.lat, Lng = to.Value.lng, Label = "Customer", Address = toAddr },
+            DistanceMeters = dist,
+            DurationSeconds = dur,
+            Coordinates = coords
+        };
+        return Ok(resp);
+    }
+
+    private static string? BuildCustomerAddressString(YemeksepetiOrderModel o)
+    {
+        var a = o?.delivery?.address;
+        if (a == null) return null;
+
+        string Join(params string?[] items) =>
+            string.Join(", ", items.Where(s => !string.IsNullOrWhiteSpace(s))!);
+
+        return Join(
+            a.street,
+            a.number,
+            a.city,
+            a.postcode
+        );
+    }
+
+    private async Task<(double lat, double lng)?> GeocodeAsync(string address, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(address)) return null;
+
+        var url = $"https://nominatim.openstreetmap.org/search?format=json&limit=1&q={Uri.EscapeDataString(address)}";
+        using var resp = await _httpMap.GetAsync(url, ct);
+        if (!resp.IsSuccessStatusCode) return null;
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        if (doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
+            return null;
+
+        var first = doc.RootElement[0];
+        var latStr = first.GetProperty("lat").GetString();
+        var lonStr = first.GetProperty("lon").GetString();
+        if (double.TryParse(latStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var lat) &&
+            double.TryParse(lonStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var lon))
+        {
+            return (lat, lon);
+        }
+        return null;
+    }
+
+    private async Task<(double distance, double duration, List<double[]> coords)?> OsrmRouteAsync(
+        (double lat, double lng) from, (double lat, double lng) to, CancellationToken ct)
+    {
+        string ToLonLat((double lat, double lng) p) =>
+            $"{p.lng.ToString(CultureInfo.InvariantCulture)},{p.lat.ToString(CultureInfo.InvariantCulture)}";
+
+        var url = $"https://router.project-osrm.org/route/v1/driving/{ToLonLat(from)};{ToLonLat(to)}?overview=full&geometries=geojson";
+        using var resp = await _httpMap.GetAsync(url, ct);
+        if (!resp.IsSuccessStatusCode) return null;
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        var routes = doc.RootElement.GetProperty("routes");
+        if (routes.GetArrayLength() == 0) return null;
+
+        var r0 = routes[0];
+        var dist = r0.GetProperty("distance").GetDouble();  // meters
+        var dur = r0.GetProperty("duration").GetDouble();   // seconds
+
+        var geom = r0.GetProperty("geometry").GetProperty("coordinates"); // [ [lon,lat], ... ]
+        var coords = new List<double[]>(geom.GetArrayLength());
+        foreach (var pt in geom.EnumerateArray())
+        {
+            var lon = pt[0].GetDouble();
+            var lat = pt[1].GetDouble();
+            coords.Add(new[] { lat, lon }); // Leaflet: [lat,lng]
+        }
+        return (dist, dur, coords);
+    }
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     // === Yemeksepeti Order webhook ===
-    
+
 
     // 🔴 SSE endpoint (FE: /api/yemeksepeti/orders/stream)
-     
+
 
     // === Order Status Update ===
     [HttpPost("update-status/{code}/{status}")]

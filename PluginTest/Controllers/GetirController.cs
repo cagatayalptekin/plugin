@@ -1,23 +1,18 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.VisualBasic.FileIO;
-using System.Text.Json;
-using System.Text;
-using System.Text.Json.Serialization;
-using System.Reflection.Metadata.Ecma335;
-using Microsoft.AspNetCore.Identity.Data;
-using System.ComponentModel.DataAnnotations;
-using System.Globalization;
-using System.Reflection.Metadata;
-using QuestPDF.Fluent;
-using QuestPDF.Helpers;
-using QuestPDF.Infrastructure;
-using QuestPDF.Drawing;
-using System.IO.Compression;
-using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using PluginTest.Infrastructure;
 using PluginTest.Options;
-
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+using System.Collections.Concurrent;
+using System.Globalization;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace PluginTest.Controllers
 {
@@ -25,77 +20,152 @@ namespace PluginTest.Controllers
     [Route("api/getir")]
     public class GetirController : ControllerBase
     {
+        // ====== DI & Config ======
         private readonly IWebHostEnvironment _env;
-
         private readonly IHttpClientFactory _http;
         private readonly GetirOptions _opt;
         private readonly OrderStream _orderStream;
-        private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-        public GetirController(IWebHostEnvironment env,
+        public GetirController(
+            IWebHostEnvironment env,
             OrderStream orderStream,
             IOptions<GetirOptions> opt,
             IHttpClientFactory http)
         {
+            _env = env;
             _orderStream = orderStream;
             _opt = opt.Value;
             _http = http;
-            _env = env;
         }
-     
 
-        public static CourierNotificationDto courierNotification = new();
-        public string token { get; set; }
-
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CourierNotificationDto> _latest
-    = new();
-
-
+        // ====== Consts & Shared ======
         private const string BaseUrl = "https://food-external-api-gateway.development.getirapi.com";
         private const string AppSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d";
         private const string RestaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b";
-        
+
+        private static readonly JsonSerializerOptions JsonOpts = new()
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            PropertyNameCaseInsensitive = true,
+            NumberHandling = JsonNumberHandling.AllowReadingFromString
+        };
+
+        private static readonly ConcurrentDictionary<string, CourierNotificationDto> _latest = new();
+
+        // Tek bir HttpClient (geocode & OSRM) + UA
+        private static readonly HttpClient _httpMap = new(new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.GZip |
+                                     System.Net.DecompressionMethods.Deflate
+        });
+
+        static GetirController()
+        {
+            _httpMap.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("pos-web-ui", "1.0"));
+        }
 
         private async Task<string> GetTokenAsync()
         {
             using var client = new HttpClient();
-            var loginPayload = new { appSecretKey = AppSecretKey, restaurantSecretKey = RestaurantSecretKey };
-            var content = new StringContent(JsonSerializer.Serialize(loginPayload), Encoding.UTF8, "application/json");
+            var payload = new { appSecretKey = AppSecretKey, restaurantSecretKey = RestaurantSecretKey };
+            using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOpts), Encoding.UTF8, "application/json");
 
             var resp = await client.PostAsync($"{BaseUrl}/auth/login", content);
-            resp.EnsureSuccessStatusCode();
+            var body = await resp.Content.ReadAsStringAsync();
 
-            var json = await resp.Content.ReadAsStringAsync();
-            var parsed = JsonSerializer.Deserialize<TokenResponse>(json, JsonOpts);
-            return parsed?.Token ?? throw new InvalidOperationException("Token alınamadı.");
+            if (!resp.IsSuccessStatusCode)
+                throw new InvalidOperationException($"Login failed: {(int)resp.StatusCode} - {body}");
+
+            var parsed = JsonSerializer.Deserialize<LoginResponse>(body, JsonOpts);
+            return parsed?.token ?? throw new InvalidOperationException("Token alınamadı.");
         }
 
-        // POST api/getir/restaurants/courier/enable
+        // =====================================================================
+        // =============  POS / KURYE AÇ-KAPA  (Restaurant & Courier) ==========
+        // =====================================================================
+
+        [HttpPost("restaurants/enable")]
+        public async Task<IActionResult> EnableRestaurant()
+        {
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
+
+            using var body = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resp = await http.PutAsync($"{BaseUrl}/restaurants/status/open", body);
+            var respBody = await resp.Content.ReadAsStringAsync();
+
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, respBody);
+            return Ok(new { result = true, status = 100 });
+        }
+
+        public class DisableRestaurantDto { public int? TimeOffAmount { get; set; } }
+
+        [HttpPost("restaurants/disable")]
+        public async Task<IActionResult> DisableRestaurant([FromBody] DisableRestaurantDto dto)
+        {
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
+
+            var json = (dto?.TimeOffAmount is int m)
+                ? JsonSerializer.Serialize(new { timeOffAmount = m }, JsonOpts)
+                : "{}";
+
+            using var body = new StringContent(json, Encoding.UTF8, "application/json");
+            var resp = await http.PutAsync($"{BaseUrl}/restaurants/status/close", body);
+            var respBody = await resp.Content.ReadAsStringAsync();
+
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, respBody);
+
+            var status = (dto?.TimeOffAmount is int) ? 300 : 200;
+            return Ok(new { result = true, status });
+        }
+
+        public class DisableCourierDto { public int? TimeOffAmount { get; set; } } // dk
+
         [HttpPost("restaurants/courier/enable")]
         public async Task<IActionResult> EnableCourier()
         {
             var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
 
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.Add("token", token);
+            var resp = await http.PostAsync($"{BaseUrl}/restaurants/courier/enable",
+                new StringContent("{}", Encoding.UTF8, "application/json"));
 
-            var resp = await client.PostAsync($"{BaseUrl}/restaurants/courier/enable",
-                                              new StringContent("{}", Encoding.UTF8, "application/json"));
             var body = await resp.Content.ReadAsStringAsync();
             if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
 
             return Content(body, "application/json");
         }
 
+        [HttpPost("restaurants/courier/disable")]
+        public async Task<IActionResult> DisableCourier([FromBody] DisableCourierDto dto)
+        {
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
 
+            var req = new { timeOffAmount = dto.TimeOffAmount };
+            var json = JsonSerializer.Serialize(req, JsonOpts);
+
+            var resp = await http.PostAsync($"{BaseUrl}/restaurants/courier/disable",
+                new StringContent(json, Encoding.UTF8, "application/json"));
+
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+
+            return Content(body, "application/json");
+        }
+
+        // =====================================================================
+        // ======================  ORDER STREAM (BİZİM EVENT)  =================
+        // =====================================================================
 
         [HttpPost("newOrder")]
         public IActionResult NewOrder([FromBody] FoodOrderResponse body)
         {
-             
-
-            // Yalnızca gerekli alanları çek (PII loglama yok)
-           
             var payload = JsonSerializer.Serialize(new
             {
                 source = "Getir",
@@ -103,19 +173,16 @@ namespace PluginTest.Controllers
                 code = body.confirmationId ?? Guid.NewGuid().ToString("N"),
                 total = body.totalPrice,
                 at = DateTime.UtcNow
-            });
+            }, JsonOpts);
 
             _orderStream.Publish(payload);
+            Console.WriteLine(JsonSerializer.Serialize(body));
             return Ok(new { ok = true });
         }
 
-
-        // ========== CANCEL ORDER ==========
         [HttpPost("cancelOrder")]
-        
-        public IActionResult CancelOrder([FromBody] FoodOrderResponse body)
+        public IActionResult CancelOrderEvent([FromBody] FoodOrderResponse body)
         {
- 
             var payload = JsonSerializer.Serialize(new
             {
                 source = "Getir",
@@ -123,294 +190,261 @@ namespace PluginTest.Controllers
                 code = body.confirmationId,
                 total = body.totalPrice,
                 at = DateTime.UtcNow
-            });
+            }, JsonOpts);
 
             _orderStream.Publish(payload);
             return Ok(new { ok = true });
         }
 
+        // =====================================================================
+        // ========================  FOOD ORDERS (GETIR)  =======================
+        // =====================================================================
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        public class DisableCourierDto { public int? TimeOffAmount { get; set; } } // dk cinsinden
-
-        // POST api/getir/restaurants/courier/disable
-        [HttpPost("restaurants/courier/disable")]
-        public async Task<IActionResult> DisableCourier([FromBody] DisableCourierDto dto)
+        [HttpPost("food-orders/active")]
+        public async Task<List<FoodOrderResponse>> GetActiveOrders()
         {
             var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
 
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.Add("token", token);
-            var request = new
-            {
+            var resp = await http.PostAsync($"{BaseUrl}/food-orders/active",
+                new StringContent("", Encoding.UTF8, "application/json"));
 
-                timeOffAmount = dto.TimeOffAmount
-            };
-            var json = JsonSerializer.Serialize(request, JsonOpts);
-            // minutes verilmediyse boş obje gönder (süresiz)
-          
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) throw new Exception(body);
 
-            var resp = await client.PostAsync($"{BaseUrl}/restaurants/courier/disable", content);
+            return JsonSerializer.Deserialize<List<FoodOrderResponse>>(body, JsonOpts) ?? new();
+        }
+
+        [HttpPost("food-orders/periodic/unapproved")]
+        public async Task<List<FoodOrderResponse>> GetUnapprovedOrders()
+        {
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
+
+            var resp = await http.PostAsync($"{BaseUrl}/food-orders/periodic/unapproved",
+                new StringContent("", Encoding.UTF8, "application/json"));
+
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) throw new Exception(body);
+
+            return JsonSerializer.Deserialize<List<FoodOrderResponse>>(body, JsonOpts) ?? new();
+        }
+
+        [HttpPost("food-orders/periodic/cancelled")]
+        public async Task<List<FoodOrderResponse>> GetCancelledOrders()
+        {
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
+
+            var resp = await http.PostAsync($"{BaseUrl}/food-orders/periodic/cancelled",
+                new StringContent("", Encoding.UTF8, "application/json"));
+
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) throw new Exception(body);
+
+            return JsonSerializer.Deserialize<List<FoodOrderResponse>>(body, JsonOpts) ?? new();
+        }
+
+        [HttpGet("order-detail/{foodOrderId}")]
+        public async Task<IActionResult> GetOrderById(string foodOrderId)
+        {
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
+
+            var resp = await http.GetAsync($"{BaseUrl}/food-orders/{foodOrderId}");
             var body = await resp.Content.ReadAsStringAsync();
             if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
 
             return Content(body, "application/json");
         }
 
-       
-
-
-
-        [HttpPost("auth/login")]
-        public async Task<IActionResult> Login()
+        [HttpGet("food-orders/{foodOrderId}/cancel-options")]
+        public async Task<IActionResult> GetCancelOptions([FromRoute] string foodOrderId)
         {
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
 
-            using (HttpClient client = new HttpClient())
-            {
+            var resp = await http.GetAsync($"{BaseUrl}/food-orders/{foodOrderId}/cancel-options");
+            var body = await resp.Content.ReadAsStringAsync();
 
-
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var json = JsonSerializer.Serialize(loginRequest);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var response = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", content);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
-                }
-
-                var responseBody = await response.Content.ReadAsStringAsync();
-                var result = JsonSerializer.Deserialize<LoginResponse>(responseBody);
-                token = result.token;
-                return Ok(result);
-            }
-
-
-
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+            return Content(body, "application/json");
         }
 
-
-
-        [HttpPost("food-orders/active")]
-        public async Task<List<FoodOrderResponse>> GetActiveOrders()
+        [HttpPost("cancel-order/{foodOrderId}/{cancelNote}/{cancelReasonId}")]
+        public async Task<IActionResult> CancelOrder(
+            [FromRoute] string foodOrderId,
+            [FromRoute] string cancelNote,
+            [FromRoute] string cancelReasonId)
         {
-            string token;
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
 
-            // 1. Adım: Login ol, token al
-            using (var client = new HttpClient())
+            var cancelBody = new CancelOrderRequest
             {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
+                cancelNote = cancelNote,
+                cancelReasonId = cancelReasonId,
+                productId = foodOrderId // (Getir tarafında gövde şeması böyle)
+            };
 
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
+            var json = JsonSerializer.Serialize(cancelBody, JsonOpts);
+            var resp = await http.PostAsync($"{BaseUrl}/food-orders/{foodOrderId}/cancel",
+                new StringContent(json, Encoding.UTF8, "application/json"));
 
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
 
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
-
-                var response = await client.PostAsync(
-                    "https://food-external-api-gateway.development.getirapi.com/food-orders/active",
-                    new StringContent("", Encoding.UTF8, "application/json") // veya null da olabilir
-                );
-
-
-
-
-                var responseBody = await response.Content.ReadAsStringAsync();
-                var opts = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true,
-                    NumberHandling = JsonNumberHandling.AllowReadingFromString
-                };
-
-               
-
-                var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(responseBody,opts);
-                Console.WriteLine(JsonSerializer.Serialize(orders, new JsonSerializerOptions { WriteIndented = true }));
-                //if (orders?.Count > 0)
-                //{
-                //    await GetOrderById(orders.FirstOrDefault().id);
-                //}
-         
-           
-                return orders;
-            }
-            // 2. Adım: Token ile aktif siparişleri çek
-
+            return Content(body, "application/json");
         }
-        [HttpPost("food-orders/periodic/unapproved")]
-        public async Task<List<FoodOrderResponse>> GetUnapprovedOrders()
+
+        private async Task<IActionResult> UpdateOrderStatus(string foodOrderId, string actionEndpoint)
         {
-            string token;
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
 
-            // 1. Adım: Login ol, token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
+            var url = $"{BaseUrl}/food-orders/{foodOrderId}/{actionEndpoint}";
+            var resp = await http.PostAsync(url, null);
+            var body = await resp.Content.ReadAsStringAsync();
 
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
-
-                var response = await client.PostAsync(
-                    "https://food-external-api-gateway.development.getirapi.com/food-orders/periodic/unapproved",
-                    new StringContent("", Encoding.UTF8, "application/json") // veya null da olabilir
-                );
-
-
-
-
-                var responseBody = await response.Content.ReadAsStringAsync();
-                var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(responseBody);
-                Console.WriteLine(JsonSerializer.Serialize(orders, new JsonSerializerOptions { WriteIndented = true }));
-                if (orders?.Count > 0)
-                {
-                    await GetOrderById(orders.FirstOrDefault().id);
-                }
-
-
-                return orders;
-            }
-            // 2. Adım: Token ile aktif siparişleri çek
-
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+            return Content(body, "application/json");
         }
-        [HttpPost("food-orders/periodic/cancelled")]
-        public async Task<List<FoodOrderResponse>> GetCancelledOrders()
+
+        [HttpPost("food-orders/{foodOrderId}/verify/{status}")]
+        public async Task<IActionResult> VerifyOrder([FromRoute] string foodOrderId, [FromRoute] int status)
         {
-            string token;
-
-            // 1. Adım: Login ol, token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
-
-                var response = await client.PostAsync(
-                    "https://food-external-api-gateway.development.getirapi.com/food-orders/periodic/cancelled",
-                    new StringContent("", Encoding.UTF8, "application/json") // veya null da olabilir
-                );
-
-
-
-
-                var responseBody = await response.Content.ReadAsStringAsync();
-                var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(responseBody);
-                Console.WriteLine(JsonSerializer.Serialize(orders, new JsonSerializerOptions { WriteIndented = true }));
-                if (orders?.Count > 0)
-                {
-                    await GetOrderById(orders.FirstOrDefault().id);
-                }
-
-
-                return orders;
-            }
-            // 2. Adım: Token ile aktif siparişleri çek
-
+            if (status == 400) return await UpdateOrderStatus(foodOrderId, "verify");
+            if (status == 325) return await UpdateOrderStatus(foodOrderId, "verify-scheduled");
+            return Ok(new { ignored = true, foodOrderId, status });
         }
+
+        [HttpPost("food-orders/{foodOrderId}/prepare")]
+        public Task<IActionResult> PrepareOrder(string foodOrderId) =>
+            UpdateOrderStatus(foodOrderId, "prepare");
+
+        [HttpPost("food-orders/{foodOrderId}/deliver")]
+        public Task<IActionResult> DeliverOrder(string foodOrderId) =>
+            UpdateOrderStatus(foodOrderId, "deliver");
+
+        [HttpPost("food-orders/{foodOrderId}/handover")]
+        public Task<IActionResult> HandoverOrder(string foodOrderId) =>
+            UpdateOrderStatus(foodOrderId, "handover");
+
+        // =====================================================================
+        // =========================  RESTAURANT INFO  ==========================
+        // =====================================================================
+
+        [HttpGet("restaurants")]
+        public async Task<IActionResult> GetRestaurantInfo()
+        {
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
+
+            var resp = await http.GetAsync($"{BaseUrl}/restaurants");
+            var body = await resp.Content.ReadAsStringAsync();
+
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+            return Content(body, "application/json");
+        }
+
+        [HttpPost("restaurant")]
+        public IActionResult StatusChange([FromBody] PosStatusChangeModel statusChange)
+        {
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(statusChange));
+            return Ok();
+        }
+
+        // =====================================================================
+        // =========================  MENU / PRODUCTS  ==========================
+        // =====================================================================
+
+        [HttpGet("restaurants/menu")]
+        public async Task<IActionResult> GetRestaurantMenu()
+        {
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
+
+            var resp = await http.GetAsync($"{BaseUrl}/restaurants/menu");
+            var body = await resp.Content.ReadAsStringAsync();
+
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+            return Content(body, "application/json");
+        }
+
+        [HttpGet("products/{productId}/status")]
+        public async Task<IActionResult> GetProductStatus([FromRoute] string productId)
+        {
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
+
+            var resp = await http.GetAsync($"{BaseUrl}/products/{productId}/status");
+            var body = await resp.Content.ReadAsStringAsync();
+
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+            return Content(body, "application/json");
+        }
+
+        [HttpPut("products/{productId}/status")]
+        public async Task<IActionResult> UpdateProductStatus([FromRoute] string productId, [FromBody] UpdateProductStatusRequest req)
+        {
+            if (req is null || (req.status != 100 && req.status != 200 && req.status != 400))
+                return BadRequest("status must be 100|200|400.");
+
+            var token = await GetTokenAsync();
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("token", token);
+
+            var json = JsonSerializer.Serialize(req, JsonOpts);
+            var resp = await http.PutAsync($"{BaseUrl}/products/{productId}/status",
+                new StringContent(json, Encoding.UTF8, "application/json"));
+
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
+
+            return string.IsNullOrWhiteSpace(body)
+                ? Ok(new { id = productId, status = req.status })
+                : Content(body, "application/json");
+        }
+
+        // =====================================================================
+        // ==========================  HISTORY / REPORT  ========================
+        // =====================================================================
+
         [HttpGet("food-orders/history-csv")]
         [Produces("text/csv")]
         public async Task<IActionResult> DownloadOrdersCsv(
-     [FromQuery] string startDate,
-     [FromQuery] string endDate,
-     [FromQuery] string restaurantIds,   // tek id de olabilir
-     [FromQuery] string? templateName
- )
+            [FromQuery] string startDate,
+            [FromQuery] string endDate,
+            [FromQuery] string restaurantIds,
+            [FromQuery] string? templateName)
         {
-            // 1) Login
-            string token;
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
+            var token = await GetTokenAsync();
 
-                var loginResp = await client.PostAsync(
-                    "https://food-external-api-gateway.development.getirapi.com/auth/login",
-                    new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json")
-                );
-                var loginBody = await loginResp.Content.ReadAsStringAsync();
-                if (!loginResp.IsSuccessStatusCode)
-                    return StatusCode((int)loginResp.StatusCode, loginBody);
-
-                var login = JsonSerializer.Deserialize<LoginResponse>(loginBody);
-                token = login?.token ?? throw new Exception("Token alınamadı.");
-            }
-
-            // 2) Query string
+            // query string build
             var qs = new List<string>
-    {
-        $"startDate={Uri.EscapeDataString(startDate)}",
-        $"endDate={Uri.EscapeDataString(endDate)}",
-        $"restaurantIds={Uri.EscapeDataString(restaurantIds)}"
-    };
+            {
+                $"startDate={Uri.EscapeDataString(startDate)}",
+                $"endDate={Uri.EscapeDataString(endDate)}",
+                $"restaurantIds={Uri.EscapeDataString(restaurantIds)}"
+            };
             if (!string.IsNullOrWhiteSpace(templateName))
                 qs.Add($"templateName={Uri.EscapeDataString(templateName)}");
 
-            var url = "https://food-external-api-gateway.development.getirapi.com/food-orders/report/details?" + string.Join("&", qs);
+            var url = $"{BaseUrl}/food-orders/report/details?{string.Join("&", qs)}";
 
-            // 3) İstek
             using var http = new HttpClient();
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.Add("token", token);
-            // JSON veya CSV gelebilir — ikisini de kabul edelim
             req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/csv"));
             req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*"));
@@ -419,82 +453,111 @@ namespace PluginTest.Controllers
             var fileName = $"orders-{startDate}-{endDate}.csv";
 
             if (!resp.IsSuccessStatusCode)
-            {
-                var errText = await resp.Content.ReadAsStringAsync();
-                return StatusCode((int)resp.StatusCode, errText);
-            }
+                return StatusCode((int)resp.StatusCode, await resp.Content.ReadAsStringAsync());
 
             var mediaType = resp.Content.Headers.ContentType?.MediaType ?? "";
-            // JSON geldiyse -> CSV’ye çevir
             if (mediaType.Contains("json", StringComparison.OrdinalIgnoreCase))
             {
                 var json = await resp.Content.ReadAsStringAsync();
                 var csv = JsonArrayToCsv(json);
-                // UTF-8 BOM’lu döndür (Excel için iyi olur)
                 var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv)).ToArray();
                 return File(bytes, "text/csv", fileName);
             }
 
-            // Doğrudan CSV/binary geldiyse aynen geçir
             var raw = await resp.Content.ReadAsByteArrayAsync();
-            var ct = string.IsNullOrWhiteSpace(mediaType) ? "text/csv" : mediaType;
-            return File(raw, ct, fileName);
+            return File(raw, string.IsNullOrWhiteSpace(mediaType) ? "text/csv" : mediaType, fileName);
         }
 
-        // Basit ve güvenli CSV dönüştürücü: başlıkları sabit + varsa ekstra alanları sona ekler
+        [HttpGet("food-orders/history-rows")]
+        [Produces("application/json")]
+        public async Task<IActionResult> GetHistoryRows(
+            [FromQuery] string startDate,
+            [FromQuery] string endDate,
+            [FromQuery] string restaurantIds,
+            [FromQuery] string? templateName)
+        {
+            if (DateTime.TryParse(startDate, out var s) &&
+                DateTime.TryParse(endDate, out var e) &&
+                (e - s).TotalDays > 7)
+            {
+                return BadRequest(new { code = 13, error = "FinancialReportMaxDaysError", message = "maximum day limit is 7 days" });
+            }
+
+            var token = await GetTokenAsync();
+
+            var qs = new List<string>
+            {
+                $"startDate={Uri.EscapeDataString(startDate)}",
+                $"endDate={Uri.EscapeDataString(endDate)}",
+                $"restaurantIds={Uri.EscapeDataString(restaurantIds)}"
+            };
+            templateName ??= "RestaurantFinancial";
+            if (!string.IsNullOrWhiteSpace(templateName))
+                qs.Add($"templateName={Uri.EscapeDataString(templateName)}");
+
+            var url = $"{BaseUrl}/food-orders/report/details?{string.Join("&", qs)}";
+
+            using var http = new HttpClient();
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Add("token", token);
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+            var body = await resp.Content.ReadAsStringAsync();
+
+            if (!resp.IsSuccessStatusCode)
+                return StatusCode((int)resp.StatusCode, body);
+
+            return Content(body, "application/json; charset=utf-8");
+        }
+
         private static string JsonArrayToCsv(string json)
         {
             using var doc = JsonDocument.Parse(json);
             if (doc.RootElement.ValueKind != JsonValueKind.Array) return "";
 
-            // Beklenen sütun sırası (örnek JSON’dan)
             var preferred = new List<string>
-    {
-        "city","paymentMethod","deliveryType","companyName","taxNo","iban",
-        "restaurantId","branchName","restaurantName","foodOrderId","date",
-        "finalPrice","finalPriceTaxExcluded","supplierSupport","chargedAmountTaxExcluded",
-        "supplierProductRevenue","supplierProductRevenueTaxExcluded","damagedProductTotal",
-        "commissionBasketValue","commissionBasketValueTaxExcluded","damagedProductSource",
-        "netCommissionRevenue","supplierNetRevenue","loyaltyFee","totalDiscountedPrice",
-        "visibilityFeeAmount","withholdingTaxAmount","deferredPaymentDate",
-        "paymentStatus","orderStatus","partialRefundsPrice"
-    };
+            {
+                "city","paymentMethod","deliveryType","companyName","taxNo","iban",
+                "restaurantId","branchName","restaurantName","foodOrderId","date",
+                "finalPrice","finalPriceTaxExcluded","supplierSupport","chargedAmountTaxExcluded",
+                "supplierProductRevenue","supplierProductRevenueTaxExcluded","damagedProductTotal",
+                "commissionBasketValue","commissionBasketValueTaxExcluded","damagedProductSource",
+                "netCommissionRevenue","supplierNetRevenue","loyaltyFee","totalDiscountedPrice",
+                "visibilityFeeAmount","withholdingTaxAmount","deferredPaymentDate",
+                "paymentStatus","orderStatus","partialRefundsPrice"
+            };
 
-            // Ekstra alanlar varsa yakala
             var extras = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var row in doc.RootElement.EnumerateArray())
             {
                 if (row.ValueKind != JsonValueKind.Object) continue;
                 foreach (var p in row.EnumerateObject())
-                {
                     if (!preferred.Contains(p.Name) && !extras.Contains(p.Name))
                         extras.Add(p.Name);
-                }
             }
 
             var headers = preferred.Concat(extras).ToList();
             var sb = new StringBuilder();
-
-            // Header
             sb.AppendLine(string.Join(",", headers.Select(EscapeCsv)));
 
-            // Rows
             foreach (var row in doc.RootElement.EnumerateArray())
             {
                 var cells = new List<string>(headers.Count);
                 foreach (var h in headers)
                 {
                     string val = "";
-                    if (row.TryGetProperty(h, out var el))
+                    if (row.ValueKind == JsonValueKind.Object &&
+                        row.TryGetProperty(h, out var el))
                     {
                         val = el.ValueKind switch
                         {
                             JsonValueKind.String => el.GetString() ?? "",
-                            JsonValueKind.Number => el.ToString(), // kültürden bağımsız nokta
+                            JsonValueKind.Number => el.ToString(),
                             JsonValueKind.True => "true",
                             JsonValueKind.False => "false",
                             JsonValueKind.Null => "",
-                            _ => el.ToString()    // obje/array için JSON string
+                            _ => el.ToString()
                         };
                     }
                     cells.Add(EscapeCsv(val));
@@ -508,1030 +571,379 @@ namespace PluginTest.Controllers
         private static string EscapeCsv(string? s)
         {
             s ??= "";
-            // virgül, çift tırnak, satır sonu varsa -> "..." ve iç tırnakları çiftle
             if (s.Contains(',') || s.Contains('"') || s.Contains('\n') || s.Contains('\r'))
                 return $"\"{s.Replace("\"", "\"\"")}\"";
             return s;
         }
-        [HttpGet("food-orders/history-rows")]
-        [Produces("application/json")]
-        public async Task<IActionResult> GetHistoryRows(
-    [FromQuery] string startDate,
-    [FromQuery] string endDate,
-    [FromQuery] string restaurantIds,   // tek id de olabilir
-    [FromQuery] string? templateName
-)
-        {
-            // (Opsiyonel ama faydalı) 7 gün guard
-            if (DateTime.TryParse(startDate, out var s) &&
-                DateTime.TryParse(endDate, out var e) &&
-                (e - s).TotalDays > 7)
-            {
-                return BadRequest(new { code = 13, error = "FinancialReportMaxDaysError", message = "maximum day limit is 7 days" });
-            }
 
-            // 1) Login
-            string token;
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
+        // =====================================================================
+        // ============================  RECEIPT PNG  ===========================
+        // =====================================================================
 
-                var loginResp = await client.PostAsync(
-                    "https://food-external-api-gateway.development.getirapi.com/auth/login",
-                    new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json")
-                );
-
-                var loginBody = await loginResp.Content.ReadAsStringAsync();
-                if (!loginResp.IsSuccessStatusCode)
-                    return StatusCode((int)loginResp.StatusCode, loginBody);
-
-                var login = JsonSerializer.Deserialize<LoginResponse>(loginBody);
-                token = login?.token ?? throw new Exception("Token alınamadı.");
-            }
-
-            // 2) Query string
-            var qs = new List<string>
-    {
-        $"startDate={Uri.EscapeDataString(startDate)}",
-        $"endDate={Uri.EscapeDataString(endDate)}",
-        $"restaurantIds={Uri.EscapeDataString(restaurantIds)}"
-    };  
-            templateName = "RestaurantFinancial";
-            if (!string.IsNullOrWhiteSpace(templateName))
-                qs.Add($"templateName={Uri.EscapeDataString(templateName)}");
-            
-            var url = "https://food-external-api-gateway.development.getirapi.com/food-orders/report/details?" + string.Join("&", qs);
-
-            // 3) İstek (JSON isteyelim)
-            using var http = new HttpClient();
-            using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            req.Headers.Add("token", token);
-            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
-            var body = await resp.Content.ReadAsStringAsync();
-
-            if (!resp.IsSuccessStatusCode)
-                return StatusCode((int)resp.StatusCode, body);
-
-            // Upstream JSON array’ı olduğu gibi geçir
-            return Content(body, "application/json; charset=utf-8");
-        }
-
-        [HttpGet("order-detail/{foodOrderId}")]
-        public async Task<IActionResult> GetOrderById(string foodOrderId)
-        {
-            string token;
-            
-            // 1. Adım: Login olup token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-
-                if (!loginResponse.IsSuccessStatusCode)
-                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-
-            // 2. Adım: Siparişi ID ile çek
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Add("token", token);
-
-                var url = $"https://food-external-api-gateway.development.getirapi.com/food-orders/{foodOrderId}";
-
-                var response = await client.GetAsync(url);
-
-                if (!response.IsSuccessStatusCode)
-                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
-
-                var json = await response.Content.ReadAsStringAsync();
-                Console.WriteLine("Food order is"+json);
-                // response'u olduğu gibi dön (ya da istersen modelle deserialize et)
-                return Ok(JsonDocument.Parse(json));
-            }
-        }
-
-        [HttpGet("food-orders/{foodOrderId}/cancel-options")]
-        public async Task<IActionResult> GetCancelOptions([FromRoute]string foodOrderId)
-        {
-            string token;
-
-            // 1. Adım: Login → token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-
-                if (!loginResponse.IsSuccessStatusCode)
-                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-
-            // 2. Adım: Cancel Options isteği gönder
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Add("token", token);
-
-                var url = $"https://food-external-api-gateway.development.getirapi.com/food-orders/{foodOrderId}/cancel-options";
-                var response = await client.GetAsync(url);
-
-                if (!response.IsSuccessStatusCode)
-                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
-
-                var json = await response.Content.ReadAsStringAsync();
-                var options = JsonSerializer.Deserialize<List<CancelOption>>(json);
-
-                return Ok(options);
-            }
-        }
-
-
-        [HttpPost("cancel-order/{foodOrderId}/{cancelNote}/{cancelReasonId}")]
-        public async Task<IActionResult> CancelOrder([FromRoute]string foodOrderId, [FromRoute] string cancelNote, [FromRoute] string cancelReasonId)
-        {
-            string token;
-
-            // 1. Login: token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-
-                if (!loginResponse.IsSuccessStatusCode)
-                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-
-                 
-
-        
-
-            // 3. İptal işlemini gönder
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Add("token", token);
-
-                var cancelBody = new CancelOrderRequest
-                {
-                    cancelNote = cancelNote,
-                    cancelReasonId = cancelReasonId,
-                    productId = foodOrderId // aslında sipariş ID'si
-                };
-
-                var json = JsonSerializer.Serialize(cancelBody);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var cancelUrl = $"https://food-external-api-gateway.development.getirapi.com/food-orders/{foodOrderId}/cancel";
-                var cancelResponse = await client.PostAsync(cancelUrl, content);
-
-                if (!cancelResponse.IsSuccessStatusCode)
-                    return StatusCode((int)cancelResponse.StatusCode, await cancelResponse.Content.ReadAsStringAsync());
-
-                var responseBody = await cancelResponse.Content.ReadAsStringAsync();
-                return Ok(JsonDocument.Parse(responseBody));
-            }
-        }
-
-
-
-        private async Task<IActionResult> UpdateOrderStatus(string foodOrderId, string actionEndpoint)
-        {
-            string token;
-
-            // Token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-
-                if (!loginResponse.IsSuccessStatusCode)
-                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-
-            // Status güncelle
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Add("token", token); // ← Doğru olan bu
-
-                var url = $"https://food-external-api-gateway.development.getirapi.com/food-orders/{foodOrderId}/{actionEndpoint}";
-                var response = await client.PostAsync(url, null);
-
-                if (!response.IsSuccessStatusCode)
-                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
-
-                var responseBody = await response.Content.ReadAsStringAsync();
-                return Ok(JsonDocument.Parse(responseBody));
-            }
-        }
-
-
-        [HttpPost("food-orders/{foodOrderId}/verify/{status}")]
-        public async Task<IActionResult> VerifyOrder([FromRoute] string foodOrderId, [FromRoute] int status)
-        {
-            if(status==400)
-            {
-                return await UpdateOrderStatus(foodOrderId, "verify");
-            }
-            else if(status==325)
-            {
-                return await UpdateOrderStatus(foodOrderId, "verify-scheduled");
-            }
-            return Ok(foodOrderId);
-        }
-       
-            
-
-        [HttpPost("food-orders/{foodOrderId}/prepare")]
-        public async Task<IActionResult> PrepareOrder(string foodOrderId)
-        {
-            return await UpdateOrderStatus(foodOrderId, "prepare");
-        }
-
-        [HttpPost("food-orders/{foodOrderId}/deliver")]
-        public async Task<IActionResult> DeliverOrder(string foodOrderId)
-        {
-            return await UpdateOrderStatus(foodOrderId, "deliver");
-        }
-        [HttpPost("food-orders/{foodOrderId}/handover")]
-        public async Task<IActionResult> HandoverOrder(string foodOrderId)
-        {
-            return await UpdateOrderStatus(foodOrderId, "handover");
-        }
-         
-        public async Task<IActionResult> GetRestaurantInfoNotUsed()
-        {
-            string token;
-
-            // 1. Login işlemi: token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-
-                if (!loginResponse.IsSuccessStatusCode)
-                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-
-            // 2. Restoran bilgisi çek
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-                var response = await client.GetAsync("https://food-external-api-gateway.development.getirapi.com/restaurants");
-
-                if (!response.IsSuccessStatusCode)
-                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
-
-                var json = await response.Content.ReadAsStringAsync();
-                var restaurant = JsonSerializer.Deserialize<RestaurantInfo>(json);
-
-                return Ok(restaurant);
-            }
-        }
-
-
-
-
-
-        [HttpGet("products/{productId}/status")]
-        public async Task<IActionResult> GetProductStatus([FromRoute] string productId)
-        {
-            string token;
-
-            // 1. Login işlemi: token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-
-                if (!loginResponse.IsSuccessStatusCode)
-                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Add("token", token); // Getir expects 'token' header here
-
-                var resp = await client.GetAsync($"https://food-external-api-gateway.development.getirapi.com/products/{productId}/status");
-                var body = await resp.Content.ReadAsStringAsync();
-
-                Console.WriteLine($"[GET /products/{productId}/status] {resp.StatusCode}");
-                Console.WriteLine(body);
-
-                if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
-
-                // Pass-through typed or raw:
-                var model = JsonSerializer.Deserialize<ProductStatusResponse>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return Ok(model);
-            }
-            return Ok();
-        }
-
-        [HttpPut("products/{productId}/status")]
-        public async Task<IActionResult> UpdateProductStatus([FromRoute] string productId, [FromBody] UpdateProductStatusRequest req)
-        {
-
-
-
-            if (req == null || (req.status != 100 && req.status != 200 && req.status != 400))
-                return BadRequest("status must be 100 (ACTIVE), 200 (INACTIVE) or 400 (DAILY_INACTIVE).");
-
-            string token;
-
-            // 1. Login işlemi: token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-
-                if (!loginResponse.IsSuccessStatusCode)
-                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-            using (var client = new HttpClient())
-            {
-                Console.WriteLine(  "MY PRODUCT ID is that",productId);
-
-                client.DefaultRequestHeaders.Add("token", token);
-
-                var content = new StringContent(JsonSerializer.Serialize(req), Encoding.UTF8, "application/json");
-
-                var resp = await client.PutAsync($"https://food-external-api-gateway.development.getirapi.com/products/{productId}/status", content);
-                var body = await resp.Content.ReadAsStringAsync();
-
-                Console.WriteLine($"[PUT /products/{productId}/status] {resp.StatusCode}");
-                Console.WriteLine(body);
-
-                if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
-
-                // Return updated status payload if provided; if empty, return { status: req.status } as confirmation
-                if (string.IsNullOrWhiteSpace(body))
-                    return Ok(new { id = productId, status = req.status });
-                return Ok(JsonDocument.Parse(body));
-            }
-            return Ok();
-        }
-
-
-
-
-
-        [HttpPost("restaurants/pos-status")]
-        public async Task<IActionResult> GetPosStatus()
-        {
-            var request = new
-            {
-                appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-            };
-
-            using (var client = new HttpClient())
-            {
-
-                var json = JsonSerializer.Serialize(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var response = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/pos-status", content);
-
-                if (!response.IsSuccessStatusCode)
-                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
-
-                var responseBody = await response.Content.ReadAsStringAsync();
-                return Ok(JsonDocument.Parse(responseBody));
-            }
-        }
-        [HttpPost("restaurants/pos/status/{status}")]
-        public async Task<IActionResult> UpdatePosStatus([FromRoute] int status)
-        {
-            var request = new
-            {
-                posStatus = status,
-                appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-            };
-
-            using (var client = new HttpClient())
-            {
-
-                var json = JsonSerializer.Serialize(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var response = await client.PutAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/pos-status", content);
-
-                if (!response.IsSuccessStatusCode)
-                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
-
-                var responseBody = await response.Content.ReadAsStringAsync();
-                Console.WriteLine("✅ Response status: " + response.StatusCode);
-                Console.WriteLine("✅ Response body: " + responseBody);
-                return Ok(JsonDocument.Parse(responseBody));
-            }
-        }
         [HttpGet("food-orders/{foodOrderId}/receipt.png")]
-        public async Task<IActionResult> GetOrderReceiptPdf(string foodOrderId)
+        public async Task<IActionResult> GetOrderReceiptPng(string foodOrderId)
         {
-            // 1) Login → token
-            string token;
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-                if (!loginResponse.IsSuccessStatusCode)
-                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
+            var token = await GetTokenAsync();
 
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync(),
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                token = loginResult?.token ?? "";
-            }
-
-            // 2) Siparişi çek
+            // sipariş
             FoodOrderResponse order;
-            using (var client = new HttpClient())
+            using (var http = new HttpClient())
             {
-                client.DefaultRequestHeaders.Add("token", token);
-                var url = $"https://food-external-api-gateway.development.getirapi.com/food-orders/{foodOrderId}";
-                var resp = await client.GetAsync(url);
+                http.DefaultRequestHeaders.Add("token", token);
+                var resp = await http.GetAsync($"{BaseUrl}/food-orders/{foodOrderId}");
                 var body = await resp.Content.ReadAsStringAsync();
                 if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
 
-                order = JsonSerializer.Deserialize<FoodOrderResponse>(body,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+                order = JsonSerializer.Deserialize<FoodOrderResponse>(body, JsonOpts)!;
             }
 
-            // 3) Logo bytes (opsiyonel)
+            // logo (opsiyonel)
             byte[]? logoBytes = null;
             try
             {
                 var logoPath = Path.Combine(_env.WebRootPath, "uploads", "getir-logo.png");
-
                 if (System.IO.File.Exists(logoPath))
                     logoBytes = await System.IO.File.ReadAllBytesAsync(logoPath);
             }
-            catch { /* logla istersen */ }
+            catch { /* ignore */ }
 
-            // 4) PDF oluştur
             var png = ReceiptImageBuilder.BuildPng(order, logoBytes);
             return File(png, "image/png", $"siparis_fisi_{order.id}.png");
         }
+
         public static class ReceiptImageBuilder
         {
             public static byte[] BuildPng(FoodOrderResponse o, byte[]? logoBytes)
             {
-                // Küçük yardımcılar
                 var tr = CultureInfo.GetCultureInfo("tr-TR");
                 string Money(decimal v) => string.Format(tr, "{0:N2} ₺", v);
-                string TryDate(string? iso) => DateTime.TryParse(iso, out var dt)
-                    ? dt.ToString("dd.MM.yyyy HH:mm", tr)
-                    : "-";
+                static string TryDate(string? iso) =>
+                    DateTime.TryParse(iso, out var dt) ? dt.ToString("dd.MM.yyyy HH:mm", CultureInfo.GetCultureInfo("tr-TR")) : "-";
 
-                // Telefon (modelinde olan alanlar)
-                string phone =
-                    o?.client?.clientPhoneNumber
-                    ?? o?.client?.contactPhoneNumber
-                    ?? "-";
+                var phone = o?.client?.clientPhoneNumber ?? o?.client?.contactPhoneNumber ?? "-";
+                var payment = o?.paymentMethodText?.tr ?? o?.paymentMethodText?.en
+                              ?? (o?.paymentMethod > 0 ? $"Ödeme Yöntemi: {o.paymentMethod}" : "-");
 
-                // Ödeme
-                string payment =
-                    o?.paymentMethodText?.tr
-                    ?? o?.paymentMethodText?.en
-                    ?? (o?.paymentMethod > 0 ? $"Ödeme Yöntemi: {o.paymentMethod}" : "-");
+                var deliveryType = o?.deliveryType == 2
+                    ? "Restoran Kuryesi"
+                    : $"Getir Kuryesi{(string.IsNullOrWhiteSpace(o?.courier?.name) ? "" : $": {o!.courier!.name}")}";
 
-                // Teslimat tipi
-                string deliveryType = o?.deliveryType == 2 ? "Restoran Kuryesi" : "Getir Kuryesi:"+o.courier.name.ToString(); 
-
-                // İndirim bilgisi
                 var discountedTotal = (o?.totalDiscountedPrice ?? 0m) > 0 ? o!.totalDiscountedPrice : o!.totalPrice;
-var discount = Math.Max(0m, (o.totalPrice ?? 0m) - (discountedTotal ?? 0m));
-                bool hasDiscount = discount > 0;
-                var campaignName = hasDiscount ? "Kampanyalı Sipariş" : null;
-
+                var discount = Math.Max(0m, (o?.totalPrice ?? 0m) - (discountedTotal ?? 0m));
+                var hasDiscount = discount > 0;
                 var items = o?.products ?? new List<FoodProduct>();
 
-               
-                try
+                var doc = Document.Create(container =>
                 {
-                    var doc = QuestPDF.Fluent.Document.Create(container =>
+                    container.Page(page =>
                     {
-                        container.Page(page =>
+                        page.Margin(30);
+                        page.Size(PageSizes.A4);
+
+                        // Header
+                        page.Header().Row(row =>
                         {
-                            page.Margin(30);
-                            page.Size(PageSizes.A4);
-
-                            // HEADER
-                            page.Header().Element(header =>
+                            row.RelativeItem().Column(col =>
                             {
-                                header.Row(row =>
-                                {
-                                    row.RelativeItem().Column(col =>
-                                    {
-                                        col.Item().Text("Sipariş Fişi").SemiBold().FontSize(18);
-                                        col.Item().Text($"Sipariş ID: {o?.id}").FontSize(10).Light();
-                                        col.Item().Text($"Doğrulama Kodu: {o?.confirmationId ?? "-"}").FontSize(10).Light();
-                                    });
-
-                                    if (logoBytes is { Length: > 0 })
-                                        row.ConstantItem(100).AlignRight().Height(40).Image(logoBytes);
-                                });
+                                col.Item().Text("Sipariş Fişi").SemiBold().FontSize(18);
+                                col.Item().Text($"Sipariş ID: {o?.id}").FontSize(10).Light();
+                                col.Item().Text($"Doğrulama Kodu: {o?.confirmationId ?? "-"}").FontSize(10).Light();
                             });
 
-                            // CONTENT
-                            page.Content().PaddingVertical(10).Column(col =>
+                            if (logoBytes is { Length: > 0 })
+                                row.ConstantItem(100).AlignRight().Height(40).Image(logoBytes);
+                        });
+
+                        // Content
+                        page.Content().PaddingVertical(10).Column(col =>
+                        {
+                            col.Item().Text("Sipariş Detayı").SemiBold().FontSize(12);
+                            col.Item().Table(t =>
                             {
-                                page.Background().Background(Colors.White);
-                                // Sipariş Detayı
-                                col.Item().Text("Sipariş Detayı").SemiBold().FontSize(12);
-
-                                col.Item().Table(t =>
+                                t.ColumnsDefinition(c =>
                                 {
-                                    t.ColumnsDefinition(c =>
-                                    {
-                                        c.RelativeColumn(2);
-                                        c.RelativeColumn(5);
-                                    });
-
-                                    void R(string l, string r)
-                                    {
-                                        t.Cell().PaddingVertical(2).Text(l).FontSize(10).Light();
-                                        t.Cell().PaddingVertical(2).Text(r).FontSize(10);
-                                    }
-
-                                    R("Tarih", TryDate(o?.checkoutDate));
-                                    R("Teslimat Tipi", deliveryType);
-                                    R("Ödeme", payment);
-                                    if (!string.IsNullOrWhiteSpace(o?.clientNote)) R("Sipariş Notu", o!.clientNote);
-                                    R("Müşteri", o?.client?.name ?? "-");
-                                    R("Telefon", phone);
-                                    R("Müşteri Notu", o.clientNote);
+                                    c.RelativeColumn(2);
+                                    c.RelativeColumn(5);
                                 });
 
-                                // Ayırıcı (border-bottom ile)
-                                col.Item()
-                                   .PaddingVertical(8)
-                                   .BorderBottom(0.5f)
-                                   .BorderColor(Colors.Grey.Lighten2);
-
-                                // Ürünler
-                                col.Item().Text("Ürünler").SemiBold().FontSize(12);
-
-                                col.Item().Table(t =>
+                                void R(string l, string r)
                                 {
-                                    t.ColumnsDefinition(c =>
-                                    {
-                                        c.RelativeColumn(1);  // Adet
-                                        c.RelativeColumn(5);  // Ürün adı
-                                        c.RelativeColumn(2);  // Birim
-                                        c.RelativeColumn(2);  // Toplam
-                                    });
+                                    t.Cell().PaddingVertical(2).Text(l).FontSize(10).Light();
+                                    t.Cell().PaddingVertical(2).Text(r).FontSize(10);
+                                }
 
-                                    t.Header(h =>
-                                    {
-                                        h.Cell().Text("Adet").Bold();
-                                        h.Cell().Text("Ürün").Bold();
-                                        h.Cell().Text("Birim").Bold();
-                                        h.Cell().Text("Toplam").Bold();
-                                    });
-
-                                    foreach (var p in items)
-                                    {
-                                        var name = p?.name?.tr ?? p?.name?.en ?? (p?.product ?? "-");
-                                        var adet = p?.count ?? 0;
-                                        var unitPrice = p?.totalPrice ?? 0m;
-
-                                        // totalPriceWithOption varsa onu kullan, yoksa adet * birim
-                                        decimal lineTotal = (p?.totalPriceWithOption ?? 0m) > 0
-     ? (p!.totalPriceWithOption ?? 0m)
-     : unitPrice * adet;
-
-                                        t.Cell().Text(adet.ToString());
-                                        t.Cell().Text(name);
-                                        t.Cell().Text(Money(unitPrice));
-                                        t.Cell().Text(Money(lineTotal));
-                                    }
-                                });
-
-                                // Tutarlar
-                                col.Item().AlignRight().Column(rcol =>
-                                {
-                                    rcol.Item().Text($"Ara Toplam: {Money((o!.totalPrice ?? 0m))}").FontSize(10);
-                                    if (hasDiscount)
-                                        rcol.Item().Text($"İndirim{(campaignName != null ? $" ({campaignName})" : "")}: -{Money(discount)}").FontSize(10);
-                                    rcol.Item().Text($"İndirimli Toplam: {Money(discountedTotal??0m)}").FontSize(12).SemiBold();
-                                });
-
-                                col.Item().PaddingTop(10)
-                                   .Text("Not: Bu fiş Getir test verilerinden üretilmiştir.")
-                                   .FontSize(9).Light();
+                                R("Tarih", TryDate(o?.checkoutDate));
+                                R("Teslimat Tipi", deliveryType);
+                                R("Ödeme", payment);
+                                if (!string.IsNullOrWhiteSpace(o?.clientNote)) R("Sipariş Notu", o!.clientNote!);
+                                R("Müşteri", o?.client?.name ?? "-");
+                                R("Telefon", phone);
+                                if (!string.IsNullOrWhiteSpace(o?.clientNote)) R("Müşteri Notu", o!.clientNote!);
                             });
 
-                            // FOOTER
-                            page.Footer().AlignCenter().Text(x =>
+                            col.Item().PaddingVertical(8).BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2);
+
+                            col.Item().Text("Ürünler").SemiBold().FontSize(12);
+                            col.Item().Table(t =>
                             {
-                                x.Span("© ").FontSize(9);
-                                x.Span(DateTime.Now.ToString("yyyy"));
+                                t.ColumnsDefinition(c =>
+                                {
+                                    c.RelativeColumn(1);
+                                    c.RelativeColumn(5);
+                                    c.RelativeColumn(2);
+                                    c.RelativeColumn(2);
+                                });
+
+                                t.Header(h =>
+                                {
+                                    h.Cell().Text("Adet").Bold();
+                                    h.Cell().Text("Ürün").Bold();
+                                    h.Cell().Text("Birim").Bold();
+                                    h.Cell().Text("Toplam").Bold();
+                                });
+
+                                foreach (var p in items)
+                                {
+                                    var name = p?.name?.tr ?? p?.name?.en ?? (p?.product ?? "-");
+                                    var adet = p?.count ?? 0;
+                                    var unitPrice = p?.totalPrice ?? 0m;
+                                    var lineTotal = (p?.totalPriceWithOption ?? 0m) > 0 ? p!.totalPriceWithOption!.Value : unitPrice * adet;
+
+                                    t.Cell().Text(adet.ToString());
+                                    t.Cell().Text(name);
+                                    t.Cell().Text(Money(unitPrice));
+                                    t.Cell().Text(Money(lineTotal));
+                                }
                             });
+
+                            col.Item().AlignRight().Column(rcol =>
+                            {
+                                rcol.Item().Text($"Ara Toplam: {Money((o!.totalPrice ?? 0m))}").FontSize(10);
+                                if (hasDiscount)
+                                    rcol.Item().Text($"İndirim: -{Money(discount)}").FontSize(10);
+                                rcol.Item().Text($"İndirimli Toplam: {Money(discountedTotal ?? 0m)}").FontSize(12).SemiBold();
+                            });
+
+                            col.Item().PaddingTop(10).Text("Not: Bu fiş Getir test verilerinden üretilmiştir.").FontSize(9).Light();
+                        });
+
+                        // Footer
+                        page.Footer().AlignCenter().Text(x =>
+                        {
+                            x.Span("© ").FontSize(9);
+                            x.Span(DateTime.Now.ToString("yyyy"));
                         });
                     });
+                });
 
-                    // PNG çıktı (QuestPDF bu overload’da PNG üretir)
-                    var images = doc.GenerateImages();   // istersen doc.GenerateImages(144) (dpi) kullan
-
-                    return images.First();
-                }
-                catch (Exception e)
-                {
-
-                    Console.WriteLine("msj",e.Message);
-                }
-                return new byte[10];
-               
-            }
-
-            private static string TryDate(string? iso)
-            {
-                if (DateTimeOffset.TryParse(iso, out var dt))
-                    return dt.ToLocalTime().ToString("dd.MM.yyyy HH:mm");
-                return "-";
+                var images = doc.GenerateImages();
+                return images.First();
             }
         }
 
-
-        [HttpPost("restaurants/status/{status}/{time}")]
-        public async Task<IActionResult> CloseRestaurant([FromRoute] int status, [FromRoute] int time)
-        {
-            Console.WriteLine("✅ Time  is: " + time);
-            Console.WriteLine("✅ status is : " + status);
-            string token;
-
-            // 1. Login işlemi: token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginRequest), Encoding.UTF8, "application/json");
-                var loginResponse = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-
-                if (!loginResponse.IsSuccessStatusCode)
-                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(await loginResponse.Content.ReadAsStringAsync());
-                token = loginResult.token;
-            }
-
-
-         
-
-            using (var client = new HttpClient())
-            {
-                var response= new HttpResponseMessage();
-                client.DefaultRequestHeaders.Add("token", token); // Bearer değil
-
-                if (status==100)
-                {
-                     response = await client.PutAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/status/open", null);
-                }
-                else if (status == 200)
-                {
-                    var request = new
-                    {
-
-                        timeOffAmount = time
-                    };
-                    var json = JsonSerializer.Serialize(request);
-                    var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                    response = await client.PutAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/status/close", content);
-                }
-                
-               
-
-                if (!response.IsSuccessStatusCode)
-                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
-
-                var responseBody = await response.Content.ReadAsStringAsync();
-                Console.WriteLine("✅ Response status: " + response.StatusCode);
-                Console.WriteLine("✅ Response body: " + responseBody);
-                return Ok();
-            }
-        }
-        [HttpGet("restaurants")]
-        public async Task<IActionResult> GetRestaurantInfo()
-        {
-            string token;
-
-            // 1) Login → token
-            using (var client = new HttpClient())
-            {
-                var loginPayload = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(JsonSerializer.Serialize(loginPayload), Encoding.UTF8, "application/json");
-                var loginResp = await client.PostAsync("https://food-external-api-gateway.development.getirapi.com/auth/login", loginContent);
-                var loginBody = await loginResp.Content.ReadAsStringAsync();
-                if (!loginResp.IsSuccessStatusCode) return StatusCode((int)loginResp.StatusCode, loginBody);
-
-                var login = JsonSerializer.Deserialize<LoginResponse>(loginBody, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                token = login?.token ?? "";
-            }
-
-            // 2) GET /restaurants
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Add("token", token); // per docs
-
-                var resp = await client.GetAsync("https://food-external-api-gateway.development.getirapi.com/restaurants");
-                var body = await resp.Content.ReadAsStringAsync();
-
-                Console.WriteLine($"[GET /restaurants] {resp.StatusCode}");
-                Console.WriteLine(body);
-
-                if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
-
-                var model = JsonSerializer.Deserialize<RestaurantInfoResponse>(
-                    body,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
-                );
-
-                if (model == null) return StatusCode(502, "Invalid restaurant payload.");
-
-                return Ok(model); // ← Angular receives { id, status, ... }
-            }
-        }
-        [HttpPost("restaurant")]
-        public IActionResult StatusChange([FromBody] PosStatusChangeModel statusChange)
-        {
-            Console.WriteLine("qwe");
-            // Gelen payload'u komple JSON olarak console'a yaz
-            Console.WriteLine(
-                $"RestaurantId: {statusChange.RestaurantId}, " +
-                $"RestaurantName: {statusChange.RestaurantName}, " +
-                $"Status(raw): {statusChange.Status}, " +
-                $"StatusChangeDate: {statusChange.StatusChangeDate}"
-            );
-
-            // Tüm modeli JSON serialize edip loglamak için:
-            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(statusChange));
-
-            return Ok();
-        }
-
-
-        [HttpGet("restaurants/menu")]
-        public async Task<ActionResult<RestaurantMenuResponse>> GetRestaurantMenu()
-        {
-            string token;
-
-            // 1. Token al
-            using (var client = new HttpClient())
-            {
-                var loginRequest = new
-                {
-                    appSecretKey = "5687880695ded1b751fb8bfbc3150a0fd0f0576d",
-                    restaurantSecretKey = "6cfbb12f2bd594fe6920163136776d2860cfe46b"
-                };
-
-                var loginContent = new StringContent(
-                    JsonSerializer.Serialize(loginRequest),
-                    Encoding.UTF8,
-                    "application/json"
-                );
-
-                var loginResponse = await client.PostAsync(
-                    "https://food-external-api-gateway.development.getirapi.com/auth/login",
-                    loginContent
-                );
-
-                if (!loginResponse.IsSuccessStatusCode)
-                    return StatusCode((int)loginResponse.StatusCode, await loginResponse.Content.ReadAsStringAsync());
-
-                var loginResult = JsonSerializer.Deserialize<LoginResponse>(
-                    await loginResponse.Content.ReadAsStringAsync(),
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
-                );
-
-                token = loginResult?.token ?? string.Empty;
-            }
-
-            if (string.IsNullOrEmpty(token))
-                return Unauthorized("Token alınamadı.");
-
-            // 2. Menü verisini çek
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Add("token", token); // Bearer değil
-
-                var response = await client.GetAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/menu");
-
-                if (!response.IsSuccessStatusCode)
-                    return StatusCode((int)response.StatusCode, await response.Content.ReadAsStringAsync());
-
-                var json = await response.Content.ReadAsStringAsync();
-
-                // ✅ Deserialize et
-                var menu = JsonSerializer.Deserialize<RestaurantMenuResponse>(
-                    json,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
-                );
-                Console.WriteLine(JsonSerializer.Serialize(menu, new JsonSerializerOptions { WriteIndented = true }));
-                if (menu == null)
-                    return Problem("Menü deserialize edilemedi.");
-
-                // ✅ Direkt model döndür
-                return menu;
-            }
-        }
-
+        // =====================================================================
+        // ========================  COURIER NOTIFICATION  ======================
+        // =====================================================================
 
         [HttpGet("courier/latest/{orderId}")]
         public ActionResult<CourierNotificationDto> GetLatest(string orderId)
         {
-            if (_latest.TryGetValue(orderId, out var dto))
-            {
-                return dto;
-            }
-               
-            else
-            {
-                Console.WriteLine(  "bulunamadıı");
-                return NotFound($"No notification found for order ID: {orderId}");
-            }
+            return _latest.TryGetValue(orderId, out var dto)
+                ? dto
+                : NotFound($"No notification found for order ID: {orderId}");
         }
 
         [HttpPost("courier")]
         public IActionResult CourierNotification([FromBody] CourierNotificationDto payload)
         {
-            Console.WriteLine("=== Courier Notification Payload ===");
-            string json = System.Text.Json.JsonSerializer.Serialize(payload,
-        new System.Text.Json.JsonSerializerOptions
-        {
-            WriteIndented = true // okunabilir format
-        });
+            if (payload == null) return BadRequest("payload empty");
 
-           
-            Console.WriteLine(json);
-            Console.WriteLine();
-            if (payload == null)
-                Console.WriteLine("payload empty");
+            Console.WriteLine("=== Courier Notification ===");
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
 
-        
-            // Header yoksa isterseniz zorunlu kılabilirsiniz:
-            // else return Unauthorized("Missing X-Api-Key.");
+            if (!DateTimeOffset.TryParse(payload.CalculationDate, out _))
+                Console.WriteLine("calculationDate is not a valid ISO-8601 datetime.");
 
-            // Tarihleri parse etmeye çalışalım (ISO-8601 bekleniyor)
-            if (!DateTimeOffset.TryParse(payload.CalculationDate, out var calculation))
-                Console.WriteLine("calculationDate is not a valid ISO-8601 datetime.");  
-
-            DateTimeOffset? pickupMin = null, pickupMax = null;
-            if (payload.Pickup is not null)
-            {
-                if (!string.IsNullOrWhiteSpace(payload.Pickup.Min) &&
-                    DateTimeOffset.TryParse(payload.Pickup.Min, out var minVal))
-                {
-                    pickupMin = minVal;
-                }
-                if (!string.IsNullOrWhiteSpace(payload.Pickup.Max) &&
-                    DateTimeOffset.TryParse(payload.Pickup.Max, out var maxVal))
-                {
-                    pickupMax = maxVal;
-                }
-            }
-
-            // Burada: DB’ye yazabilir, in-memory cache güncelleyebilir, loglayabilirsiniz
-            Console.WriteLine($"[CourierNotify] order={payload.OrderId} rest={payload.RestaurantId} " +
-                              $"calc={calculation:o} pickupMin={(pickupMin?.ToString("o") ?? "-")} " +
-                              $"pickupMax={(pickupMax?.ToString("o") ?? "-")}");
-
-            // Örn. domain event / message queue tetiklemek isterseniz burada yapın
-
-            // Getir tarafına 200 OK dönmek yeterli
             _latest[payload.OrderId] = payload;
             return Ok();
         }
 
-        // AÇ: PUT /restaurants/status/open
-        [HttpPost("restaurants/enable")]
-        public async Task<IActionResult> EnableRestaurant()
+        // =====================================================================
+        // ================================  MAP  ===============================
+        // =====================================================================
+
+        [HttpPost("map/route-for-order")]
+        public async Task<ActionResult<OrderRouteResponseDto>> RouteForOrder(
+            [FromBody] OrderRouteRequestDto body,
+            CancellationToken ct)
         {
-            var token = await GetTokenAsync();
+            if (body?.Order == null) return BadRequest("order gerekli");
+            var mode = (body.Mode ?? "r2c").Trim().ToLowerInvariant();
 
-            using var http = new HttpClient();
-            http.DefaultRequestHeaders.Add("token", token);
+            // TO (Customer)
+            (double lat, double lng)? to = GetCustomerLatLng(body.Order);
+            string? toAddr = null;
 
-            // Boş JSON göndersin (Getir tarafı PUT + body bekliyor)
-            using var body = new StringContent("{}", Encoding.UTF8, "application/json");
-            var resp = await http.PutAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/status/open", body);
+            if (to == null)
+            {
+                toAddr = BuildCustomerAddressString(body.Order);
+                var g = await GeocodeAsync(toAddr ?? string.Empty, ct);
+                if (g == null) return BadRequest("Müşteri konumu/adresi çözülemedi.");
+                to = g.Value;
+            }
 
-            var respBody = await resp.Content.ReadAsStringAsync();
-            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, respBody);
+            // FROM
+            (double lat, double lng)? from;
+            string fromLabel;
 
-            // İstersen pass-through yap; ben basit OK döndürüyorum:
-            return Ok(new { result = true, status = 100 });
+            switch (mode)
+            {
+                case "r2c":
+                    // Restoran konumu = KURYE konumu (senden gelen kural)
+                    from = GetCourierLatLng(body.Order);
+                    fromLabel = "Restaurant(=Courier)";
+                    if (from == null) return BadRequest("Kurye konumu yok, r2c hesaplanamaz.");
+                    break;
+
+                case "c2c":
+                    from = GetCourierLatLng(body.Order);
+                    fromLabel = "Courier";
+                    if (from == null) return BadRequest("Kurye konumu yok, c2c hesaplanamaz.");
+                    break;
+
+                default:
+                    return BadRequest("mode geçersiz. 'r2c' veya 'c2c' kullanın.");
+            }
+
+            var osrm = await OsrmRouteAsync(from!.Value, to!.Value, ct);
+            if (osrm == null) return StatusCode(502, "Rota hesaplanamadı.");
+
+            var (dist, dur, coords) = osrm.Value;
+            var resp = new OrderRouteResponseDto
+            {
+                From = new MapPointDto { Lat = from.Value.lat, Lng = from.Value.lng, Label = fromLabel },
+                To = new MapPointDto { Lat = to.Value.lat, Lng = to.Value.lng, Label = "Customer", Address = toAddr },
+                DistanceMeters = dist,
+                DurationSeconds = dur,
+                Coordinates = coords
+            };
+            return Ok(resp);
         }
 
-        // KAPAT: PUT /restaurants/status/close   (15/30/45 ya da süresiz)
-        [HttpPost("restaurants/disable")]
-        public async Task<IActionResult> DisableRestaurant([FromBody] DisableRestaurantDto dto)
+        private static (double lat, double lng)? GetCustomerLatLng(FoodOrderResponse o)
         {
-            var token = await GetTokenAsync();
-
-            using var http = new HttpClient();
-            http.DefaultRequestHeaders.Add("token", token);
-
-            // minutes varsa { timeOffAmount } gönder, yoksa {} (süresiz)
-            string json = (dto?.TimeOffAmount is int m)
-                ? JsonSerializer.Serialize(new { timeOffAmount = m })
-                : "{}";
-
-            using var body = new StringContent(json, Encoding.UTF8, "application/json");
-            var resp = await http.PutAsync("https://food-external-api-gateway.development.getirapi.com/restaurants/status/close", body);
-
-            var respBody = await resp.Content.ReadAsStringAsync();
-            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, respBody);
-
-            // Süreli kapama => 300, süresiz => 200
-            var status = (dto?.TimeOffAmount is int) ? 300 : 200;
-            return Ok(new { result = true, status });
+            var loc = o?.client?.location;
+            return (loc?.lat != null && loc?.lon != null) ? (loc.lat.Value, loc.lon.Value) : null;
         }
 
+        private static (double lat, double lng)? GetCourierLatLng(FoodOrderResponse o)
+        {
+            var loc = o?.courier?.location;
+            return (loc?.lat != null && loc?.lon != null) ? (loc.lat.Value, loc.lon.Value) : null;
+        }
+
+        private static string? BuildCustomerAddressString(FoodOrderResponse o)
+        {
+            var a = o?.client?.deliveryAddress;
+            if (a == null) return null;
+
+            string Join(params string?[] parts) =>
+                string.Join(", ", parts.Where(x => !string.IsNullOrWhiteSpace(x))!);
+
+            return Join(
+                a.address,
+                string.IsNullOrWhiteSpace(a.doorNo) ? null : $"Kapı {a.doorNo}",
+                string.IsNullOrWhiteSpace(a.aptNo) ? null : $"Daire {a.aptNo}",
+                string.IsNullOrWhiteSpace(a.floor) ? null : $"Kat {a.floor}",
+                a.district,
+                a.city
+            );
+        }
+
+        private async Task<(double lat, double lng)?> GeocodeAsync(string address, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(address)) return null;
+
+            var url = $"https://nominatim.openstreetmap.org/search?format=json&limit=1&q={Uri.EscapeDataString(address)}";
+            using var resp = await _httpMap.GetAsync(url, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            if (doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
+                return null;
+
+            var first = doc.RootElement[0];
+            var latStr = first.GetProperty("lat").GetString();
+            var lonStr = first.GetProperty("lon").GetString();
+
+            if (double.TryParse(latStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var lat) &&
+                double.TryParse(lonStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var lon))
+                return (lat, lon);
+
+            return null;
+        }
+
+        private async Task<(double distance, double duration, List<double[]> coords)?> OsrmRouteAsync(
+            (double lat, double lng) from, (double lat, double lng) to, CancellationToken ct)
+        {
+            string ToLonLat((double lat, double lng) p) =>
+                $"{p.lng.ToString(CultureInfo.InvariantCulture)},{p.lat.ToString(CultureInfo.InvariantCulture)}";
+
+            var url = $"https://router.project-osrm.org/route/v1/driving/{ToLonLat(from)};{ToLonLat(to)}?overview=full&geometries=geojson";
+            using var resp = await _httpMap.GetAsync(url, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            var routes = doc.RootElement.GetProperty("routes");
+            if (routes.GetArrayLength() == 0) return null;
+
+            var r0 = routes[0];
+            var dist = r0.GetProperty("distance").GetDouble();   // meters
+            var dur = r0.GetProperty("duration").GetDouble();   // seconds
+            var geom = r0.GetProperty("geometry").GetProperty("coordinates"); // [ [lon,lat], ... ]
+
+            var coords = new List<double[]>(geom.GetArrayLength());
+            foreach (var pt in geom.EnumerateArray())
+            {
+                var lon = pt[0].GetDouble();
+                var lat = pt[1].GetDouble();
+                coords.Add(new[] { lat, lon }); // Leaflet: [lat, lng]
+            }
+
+            return (dist, dur, coords);
+        }
+    }
+}
+
+
+
+// === HARİTA / ROTA: Controller içi yardımcı tipler ===
+public class MapPointDto
+    {
+        public double? Lat { get; set; }
+        public double? Lng { get; set; }
+        public string? Label { get; set; } // "Courier" | "Customer"
+        public string? Address { get; set; } // geocode için
     }
 
+    public class OrderRouteRequestDto
+    {
+        // mode: "r2c" (Restaurant(=Courier) -> Customer) | "c2c" (Courier -> Customer)
+        public string? Mode { get; set; }
+        public FoodOrderResponse? Order { get; set; }
+    }
 
+    public class OrderRouteResponseDto
+    {
+        public MapPointDto From { get; set; } = new();
+        public MapPointDto To { get; set; } = new();
+        public double DistanceMeters { get; set; }
+        public double DurationSeconds { get; set; }
+        public List<double[]> Coordinates { get; set; } = new(); // [lat,lng]
+    }
 
+    // Tek bir HttpClient yeterli
+   
     // === DTO'lar ===
     public class CourierNotificationDto
     {
@@ -2026,4 +1438,3 @@ var discount = Math.Max(0m, (o.totalPrice ?? 0m) - (discountedTotal ?? 0m));
         public string token { get; set; }
     }
 
-}
