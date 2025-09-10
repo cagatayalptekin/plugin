@@ -477,6 +477,7 @@ public class YemeksepetiController : Controller
             Console.WriteLine(order.customer?.firstName);
             Console.WriteLine(order.customer?.lastName);
         }
+        Console.WriteLine(JsonSerializer.Serialize(orders);
         return orders;
     }
 
