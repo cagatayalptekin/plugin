@@ -48,6 +48,7 @@ public class YemeksepetiController : Controller
         });
 
         _orderStream.Publish(payload);
+        orders.Add(order);
         return Ok(new { ok = true });
     }
     public IActionResult Index() => View();
@@ -469,7 +470,7 @@ public class YemeksepetiController : Controller
 
     // === Demo: FE sipariş listesi ===
     [HttpPost("get-orders")]
-    public async Task<List<YemeksepetiOrderModel>> GetOrders(List<YemeksepetiOrderModel> orders)
+    public async Task<List<YemeksepetiOrderModel>> GetOrders()
     {
         Console.WriteLine("im here get orders");
         foreach (var order in orders)
