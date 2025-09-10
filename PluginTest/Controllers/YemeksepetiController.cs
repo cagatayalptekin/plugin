@@ -154,18 +154,43 @@ public class YemeksepetiController : Controller
     [HttpPost("map/route-for-order")]
     public async Task<ActionResult<YsOrderRouteResponseDto>> RouteForOrder([FromBody] YsOrderRouteRequestDto body, CancellationToken ct)
     {
-        if (body?.Order == null) return BadRequest("order gerekli");
+        Console.WriteLine("route for order içindeyim");
+        Console.WriteLine(JsonSerializer.Serialize(body));
+        if (body?.Order == null)
+        { Console.WriteLine("order gerekli");
+            return BadRequest("Body ve order gerekli.");
+           
+        }
+            
+            
 
         var mode = (body.Mode ?? "r2c").Trim().ToLowerInvariant();
-        if (mode != "r2c") return BadRequest("Şu an yalnızca 'r2c' (Restoran→Müşteri) destekleniyor.");
+        if (mode != "r2c")
+        {
+            Console.WriteLine("yalnızca r2c destekleniyor");
+            return BadRequest("Yalnızca 'r2c' (Restoran→Müşteri) destekleniyor.");
+        }
+
+         
 
         // TO (Müşteri): adres stringini kur → geocode
         var toAddr = BuildCustomerAddressString(body.Order);
+
         if (string.IsNullOrWhiteSpace(toAddr))
+        {
+            Console.WriteLine("Müşteri adresi eksik.");
             return BadRequest("Müşteri adresi eksik.");
+ 
+        }
+            
 
         var to = await GeocodeAsync(toAddr, ct);
-        if (to == null) return BadRequest("Müşteri adresi çözülemedi.");
+        if (to == null)
+        {
+            Console.WriteLine("Müşteri adresi çözülemedi.");
+            return BadRequest("Müşteri adresi çözülemedi.");
+        }
+       
 
         // FROM (Restoran): Options’tan lat/lng bekliyoruz
         (double lat, double lng)? from = null;
@@ -180,11 +205,22 @@ public class YemeksepetiController : Controller
         }
 
         if (from == null)
-            return BadRequest("Restoran konumu yapılandırılmadı. (YemeksepetiOptions.RestaurantLat/Lng veya RestaurantAddress)");
+        {
+                Console.WriteLine("Restoran konumu yapılandırılmadı. YemeksepetiOptions.RestaurantLat/Lng veya RestaurantAddress");
+            return BadRequest("Restoran konumu yapılandırılmadı. YemeksepetiOptions.RestaurantLat/Lng veya RestaurantAddress");
+        }
+           
+
 
         // OSRM rota
         var route = await OsrmRouteAsync(from.Value, to.Value, ct);
-        if (route == null) return StatusCode(502, "Rota hesaplanamadı.");
+        if (route == null)
+        {
+            Console.WriteLine( "Rota hesaplanamadı.");
+            return StatusCode(502, "Rota hesaplanamadı.");
+        }
+
+       
 
         var (dist, dur, coords) = route.Value;
 
@@ -196,17 +232,19 @@ public class YemeksepetiController : Controller
             DurationSeconds = dur,
             Coordinates = coords
         };
+        Console.WriteLine(  resp);
         return Ok(resp);
     }
 
     private static string? BuildCustomerAddressString(YemeksepetiOrderModel o)
     {
+        Console.WriteLine("build içindeyim");
         var a = o?.delivery?.address;
         if (a == null) return null;
 
         string Join(params string?[] items) =>
             string.Join(", ", items.Where(s => !string.IsNullOrWhiteSpace(s))!);
-
+        Console.WriteLine(Join);
         return Join(
             a.street,
             a.number,
@@ -217,6 +255,7 @@ public class YemeksepetiController : Controller
 
     private async Task<(double lat, double lng)?> GeocodeAsync(string address, CancellationToken ct)
     {
+        Console.WriteLine("geocode içindeyim");
         if (string.IsNullOrWhiteSpace(address)) return null;
 
         var url = $"https://nominatim.openstreetmap.org/search?format=json&limit=1&q={Uri.EscapeDataString(address)}";
