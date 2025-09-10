@@ -10,6 +10,8 @@ using PluginTest.Options;
 namespace PluginTest.Controllers;
 using Microsoft.Extensions.Options;
 using System.Globalization;
+using System.Reflection;
+using System.Text.RegularExpressions;
 
 [ApiController]
 [Route("api/yemeksepeti")]
@@ -241,57 +243,247 @@ public class YemeksepetiController : Controller
     {
         LOG("BuildCustomerAddressString() içindeyim.");
         var a = o?.delivery?.address;
-        if (a == null)
-        {
-            LOG("delivery.address = NULL");
-            return null;
-        }
+        if (a == null) { LOG("delivery.address = NULL"); return null; }
 
-        LOG($"raw address fields => street='{a.street}', number='{a.number}', city='{a.city}', postcode='{a.postcode}'");
+        // Adres objesini bütünüyle logla:
+        LOG("delivery.address JSON: " + Trunc(JsonSerializer.Serialize(a)));
 
-        string Join(params string?[] items) =>
-            string.Join(", ", items.Where(s => !string.IsNullOrWhiteSpace(s))!);
+        var street = a.street?.Trim();
+        var numberRaw = a.number?.Trim();
+        var city = a.city?.Trim();           // genelde "İstanbul"
+        var postcode = a.postcode?.Trim();   // ör: 34394
+                                             // İlçe/mahalle gibi ekstra alanlar varsa yakala:
+        string? district = TryGetProp(a, "district") ?? TryGetProp(a, "ilce") ?? TryGetProp(a, "town");
+        string? neighborhood = TryGetProp(a, "neighborhood") ?? TryGetProp(a, "mahalle");
+
+        // number sadece rakamsa house number olarak kullan:
+        string? houseNumber = (!string.IsNullOrWhiteSpace(numberRaw) && numberRaw.All(char.IsDigit)) ? numberRaw : null;
+        if (houseNumber == null && !string.IsNullOrWhiteSpace(numberRaw))
+            LOG($"number alanı sayısal değil ('{numberRaw}'), house number olarak kullanılmayacak.");
+
+        // İlçe yoksa, bazı ZIP’ler için kestirim (ör: 34394 → Şişli)
+        if (string.IsNullOrWhiteSpace(district) && postcode == "34394") district = "Şişli";
+
+        // Kompozisyonu ILÇE’Yİ DAHİL EDEREK yap:
+        string Join(params string?[] items) => string.Join(", ", items.Where(s => !string.IsNullOrWhiteSpace(s))!);
 
         var composed = Join(
-            a.street,
-            a.number,
-            a.city,
-            a.postcode,
-            "Türkiye" // TR aramasını güçlendir
+            // Sokak + kapı no (varsa)
+            string.IsNullOrWhiteSpace(houseNumber) ? street : $"{street} {houseNumber}",
+            // Mahalleyi sokaktan sonra dene
+            neighborhood,
+            // İlçe → Şişli
+            district,
+            // Şehir → İstanbul
+            city,
+            postcode,
+            "Türkiye"
         );
 
+        LOG($"raw address fields => street='{street}', number='{numberRaw}', city='{city}', postcode='{postcode}', district='{district}', neighborhood='{neighborhood}'");
         LOG($"composed address: {composed}");
         return composed;
     }
 
+    // Küçük yardımcı: a nesnesinde isme göre property çek
+    private static string? TryGetProp(object obj, string name)
+    {
+        var p = obj.GetType().GetProperty(name, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+        var v = p?.GetValue(obj);
+        return v?.ToString();
+    }
+    private YemeksepetiOrderModel _lastOrderForRoute; // RouteForOrder içinde set et
+
+    private (double lat, double lng)? TryGetOrderCoordinates(YemeksepetiOrderModel o)
+    {
+        try
+        {
+            var a = o?.delivery?.address;
+            if (a == null) { LOG("TryGetOrderCoordinates: address null"); return null; }
+
+            double? lat = null, lng = null;
+
+            foreach (var p in a.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                var name = p.Name.ToLowerInvariant();
+                var val = p.GetValue(a);
+                if (val == null) continue;
+
+                if (name.Contains("lat"))
+                {
+                    if (TryToDouble(val, out var d)) { lat = d; LOG($"TryGetOrderCoordinates: {p.Name}={d}"); }
+                }
+                if (name.Contains("lon") || name.Contains("lng"))
+                {
+                    if (TryToDouble(val, out var d)) { lng = d; LOG($"TryGetOrderCoordinates: {p.Name}={d}"); }
+                }
+            }
+
+            if (lat.HasValue && lng.HasValue)
+                return (lat.Value, lng.Value);
+
+            LOG("TryGetOrderCoordinates: lat/lng bulunamadı.");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            LOG("TryGetOrderCoordinates hata: " + ex.Message);
+            return null;
+        }
+    }
+
+    private bool TryToDouble(object v, out double d)
+    {
+        switch (v)
+        {
+            case double dd: d = dd; return true;
+            case float ff: d = ff; return true;
+            case decimal mm: d = (double)mm; return true;
+            case string s when double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var x): d = x; return true;
+            default: d = 0; return false;
+        }
+    }
     private async Task<(double lat, double lng)?> GeocodeAsync(string address, CancellationToken ct)
     {
         LOG("GeocodeAsync() içindeyim.");
-        if (string.IsNullOrWhiteSpace(address))
+
+        // 0) Order içinde koordinat varsa doğrudan kullan (çok kritik)
+        var orderCoords = TryGetOrderCoordinates(_lastOrderForRoute); // _lastOrderForRoute: RouteForOrder içinde body.Order'ı set et.
+        if (orderCoords != null)
         {
-            LOG("GeocodeAsync: address boş.");
-            return null;
+            LOG($"Order içinde koordinat bulundu => lat={orderCoords.Value.lat}, lng={orderCoords.Value.lng}");
+            return orderCoords;
         }
+        LOG("Order içinde koordinat bulunamadı; Nominatim'e geçiliyor.");
 
-        // 1. deneme (verilen adres)
-        var url1 = $"https://nominatim.openstreetmap.org/search" +
-                   $"?format=jsonv2&limit=1&addressdetails=1&accept-language=tr&countrycodes=tr" +
-                   $"&q={Uri.EscapeDataString(address)}";
+        if (string.IsNullOrWhiteSpace(address)) { LOG("address boş"); return null; }
 
-        var hit = await GeocodeOnce(url1, "TRY#1", ct);
-        if (hit != null) return hit;
+        // 1) STRUCTURED SEARCH (sokak/ilçe/şehir/posta kodu ayrı)
+        var parts = ParseAddress(address); // aşağıda
+        var st1 = await GeocodeStructuredOnce(new()
+        {
+            ["street"] = BuildStreet(parts.Street, parts.HouseNo), // "Dede Korkut Sokak 12" ya da sadece sokak
+            ["city"] = parts.District ?? parts.City,                // Şişli (varsa), yoksa İstanbul
+            ["county"] = parts.City,                                // İstanbul
+            ["postalcode"] = parts.Postcode,
+            ["country"] = "Türkiye"
+        }, "STRUCT#1", ct);
+        if (st1 != null) return st1;
 
-        // 2. deneme (Türkiye yoksa sonuna ekleyelim)
-        var altAddress = address.Contains("Türkiye", StringComparison.OrdinalIgnoreCase)
-            ? address
-            : $"{address}, Türkiye";
+        // 2) STRUCTURED - alternatif kombinasyon
+        var st2 = await GeocodeStructuredOnce(new()
+        {
+            ["street"] = parts.Street,
+            ["city"] = parts.City,             // İstanbul
+            ["state"] = parts.City,            // İstanbul'u state olarak da deneriz
+            ["postalcode"] = parts.Postcode,
+            ["country"] = "Türkiye"
+        }, "STRUCT#2", ct);
+        if (st2 != null) return st2;
 
-        var url2 = $"https://nominatim.openstreetmap.org/search" +
-                   $"?format=jsonv2&limit=1&addressdetails=1&accept-language=tr&countrycodes=tr" +
-                   $"&q={Uri.EscapeDataString(altAddress)}";
+        // 3) FREE-FORM (senin daha önceki denemelerine benzer ama "Sok./Sk." varyantlarını da dener)
+        var ff1 = await GeocodeOnce(BuildFreeForm(parts, variant: 0), "TRY#FF1", ct);
+        if (ff1 != null) return ff1;
 
-        return await GeocodeOnce(url2, "TRY#2", ct);
+        var ff2 = await GeocodeOnce(BuildFreeForm(parts, variant: 1), "TRY#FF2", ct); // Sok. / Sk. varyantı
+        if (ff2 != null) return ff2;
+
+        var ff3 = await GeocodeOnce(BuildFreeForm(parts, variant: 2), "TRY#FF3", ct); // postakodsuz
+        return ff3;
     }
+
+    private record AddrParts(string Street, string? HouseNo, string? District, string City, string? Postcode);
+    private AddrParts ParseAddress(string composed)
+    {
+        // LOG’larda zaten tek tek alanları bastığımız için burada basitleştirilmiş parser yeterli
+        // Ama yine de Sokak + no’yu ayırmayı deniyoruz (sokakta rakam varsa house no say)
+        var m = Regex.Match(composed, @"^(?<street>.+?)\s+(?<no>\d+)\b", RegexOptions.IgnoreCase);
+        string? house = m.Success ? m.Groups["no"].Value : null;
+
+        // İlçe tahmini: "Şişli" geçiyorsa al, yoksa boş
+        string? district = Regex.IsMatch(composed, @"\bŞişli\b", RegexOptions.IgnoreCase) ? "Şişli" : null;
+
+        // Şehir: İstanbul varsayıyoruz
+        const string city = "İstanbul";
+
+        // Posta kodu: 5 hane
+        var pm = Regex.Match(composed, @"\b(?<pc>\d{5})\b");
+        string? pc = pm.Success ? pm.Groups["pc"].Value : null;
+
+        // Sokak adı: “Sokak/Sok./Sk.” gibi varyantları koru
+        var street = m.Success ? m.Groups["street"].Value : composed.Split(',')[0];
+
+        return new AddrParts(street.Trim(), house, district, city, pc);
+    }
+
+    private string BuildStreet(string street, string? no)
+        => string.IsNullOrWhiteSpace(no) ? street : $"{street} {no}";
+
+    // Free-form varyantları üret
+    private string BuildFreeForm(AddrParts p, int variant)
+    {
+        string sokak = p.Street;
+        if (variant == 1) // “Sokak” → “Sok.”/“Sk.”
+        {
+            sokak = sokak.Replace("Sokak", "Sok.", StringComparison.OrdinalIgnoreCase)
+                         .Replace("Sok.", "Sk.", StringComparison.OrdinalIgnoreCase);
+        }
+        if (variant == 2) // postakodsuz dene
+            return $"{sokak}, {p.District ?? ""}, {p.City}, Türkiye";
+
+        return $"{sokak}, {p.District ?? ""}, {p.City}, {p.Postcode}, Türkiye";
+    }
+    private async Task<(double lat, double lng)?> GeocodeStructuredOnce(
+    Dictionary<string, string?> kv, string tag, CancellationToken ct)
+    {
+        var qs = string.Join("&",
+            kv.Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
+              .Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value!)}"));
+
+        var url = $"https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&accept-language=tr&countrycodes=tr&{qs}";
+        LOG($"Geocode {tag} URL(structured) => {url}");
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.TryAddWithoutValidation("User-Agent", "Yemeksepeti-Route/1.0 (+contact: your-email@example.com)");
+        req.Headers.Accept.ParseAdd("application/json");
+        req.Headers.AcceptLanguage.ParseAdd("tr");
+
+        using var resp = await _httpMap.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct);
+        LOG($"Geocode {tag} HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        LOG($"Geocode {tag} response (trunc): {Trunc(body)}");
+
+        if (!resp.IsSuccessStatusCode) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+            {
+                var first = doc.RootElement[0];
+                var latStr = first.GetProperty("lat").GetString();
+                var lonStr = first.GetProperty("lon").GetString();
+                var display = first.TryGetProperty("display_name", out var dn) ? dn.GetString() : "";
+
+                LOG($"Geocode {tag} candidate => display_name='{display}', lat='{latStr}', lon='{lonStr}'");
+
+                if (double.TryParse(latStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var lat) &&
+                    double.TryParse(lonStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var lon))
+                {
+                    LOG($"Geocode {tag} OK => lat={lat}, lng={lon}");
+                    return (lat, lon);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LOG($"Geocode {tag} JSON parse hatası: {ex.Message}");
+        }
+        return null;
+    }
+
+    // Elindeki GeocodeOnce(q=...) fonksiyonun aynen kalabilir (daha önce vermiştim).
+
 
     private async Task<(double lat, double lng)?> GeocodeOnce(string url, string tag, CancellationToken ct)
     {
