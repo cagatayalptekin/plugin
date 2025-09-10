@@ -154,76 +154,75 @@ public class YemeksepetiController : Controller
     [HttpPost("map/route-for-order")]
     public async Task<ActionResult<YsOrderRouteResponseDto>> RouteForOrder([FromBody] YsOrderRouteRequestDto body, CancellationToken ct)
     {
-        Console.WriteLine("route for order içindeyim");
-        Console.WriteLine(JsonSerializer.Serialize(body));
+        LOG("RouteForOrder() içindeyim.");
+        LOG($"Body Raw JSON: {Trunc(JsonSerializer.Serialize(body))}");
+
         if (body?.Order == null)
-        { Console.WriteLine("order gerekli");
+        {
+            LOG("Body veya Order null.");
             return BadRequest("Body ve order gerekli.");
-           
         }
-            
-            
 
         var mode = (body.Mode ?? "r2c").Trim().ToLowerInvariant();
+        LOG($"Mode => '{mode}'");
         if (mode != "r2c")
         {
-            Console.WriteLine("yalnızca r2c destekleniyor");
+            LOG("Yalnızca r2c destekleniyor.");
             return BadRequest("Yalnızca 'r2c' (Restoran→Müşteri) destekleniyor.");
         }
 
-         
-
         // TO (Müşteri): adres stringini kur → geocode
         var toAddr = BuildCustomerAddressString(body.Order);
-
+        LOG($"toAddr => '{toAddr}'");
         if (string.IsNullOrWhiteSpace(toAddr))
         {
-            Console.WriteLine("Müşteri adresi eksik.");
+            LOG("Müşteri adresi eksik.");
             return BadRequest("Müşteri adresi eksik.");
- 
         }
-            
 
-        var to = await GeocodeAsync(toAddr, ct);
+        var to = await GeocodeAsync(toAddr!, ct);
         if (to == null)
         {
-            Console.WriteLine("Müşteri adresi çözülemedi.");
+            LOG("Müşteri adresi çözülemedi.");
             return BadRequest("Müşteri adresi çözülemedi.");
         }
-       
+        LOG($"TO => lat={to.Value.lat}, lng={to.Value.lng}");
 
-        // FROM (Restoran): Options’tan lat/lng bekliyoruz
+        // FROM (Restoran)
         (double lat, double lng)? from = null;
+        LOG($"Options.RestaurantLat={_opt.RestaurantLat}, RestaurantLng={_opt.RestaurantLng}, RestaurantAddress='{_opt.RestaurantAddress}'");
+
         if (_opt.RestaurantLat.HasValue && _opt.RestaurantLng.HasValue)
         {
             from = (_opt.RestaurantLat.Value, _opt.RestaurantLng.Value);
+            LOG($"FROM (opt lat/lng) => lat={from.Value.lat}, lng={from.Value.lng}");
         }
         else if (!string.IsNullOrWhiteSpace(_opt.RestaurantAddress))
         {
             var g = await GeocodeAsync(_opt.RestaurantAddress!, ct);
-            if (g != null) from = g.Value;
+            if (g != null)
+            {
+                from = g.Value;
+                LOG($"FROM (geocoded address) => lat={from.Value.lat}, lng={from.Value.lng}");
+            }
         }
 
         if (from == null)
         {
-                Console.WriteLine("Restoran konumu yapılandırılmadı. YemeksepetiOptions.RestaurantLat/Lng veya RestaurantAddress");
-            return BadRequest("Restoran konumu yapılandırılmadı. YemeksepetiOptions.RestaurantLat/Lng veya RestaurantAddress");
+            var msg = "Restoran konumu yapılandırılmadı. YemeksepetiOptions.RestaurantLat/Lng veya RestaurantAddress";
+            LOG(msg);
+            return BadRequest(msg);
         }
-           
-
 
         // OSRM rota
         var route = await OsrmRouteAsync(from.Value, to.Value, ct);
         if (route == null)
         {
-            Console.WriteLine( "Rota hesaplanamadı.");
+            LOG("Rota hesaplanamadı (OSRM).");
             return StatusCode(502, "Rota hesaplanamadı.");
         }
 
-       
-
         var (dist, dur, coords) = route.Value;
-
         var resp = new YsOrderRouteResponseDto
         {
             From = new MapPointDto { Lat = from.Value.lat, Lng = from.Value.lng, Label = "Restaurant" },
@@ -232,81 +231,173 @@ public class YemeksepetiController : Controller
             DurationSeconds = dur,
             Coordinates = coords
         };
-        Console.WriteLine(  resp);
+
+        LOG($"Response JSON: {Trunc(JsonSerializer.Serialize(resp))}");
         return Ok(resp);
     }
 
+
     private static string? BuildCustomerAddressString(YemeksepetiOrderModel o)
     {
-        Console.WriteLine("build içindeyim");
+        LOG("BuildCustomerAddressString() içindeyim.");
         var a = o?.delivery?.address;
-        if (a == null) return null;
+        if (a == null)
+        {
+            LOG("delivery.address = NULL");
+            return null;
+        }
+
+        LOG($"raw address fields => street='{a.street}', number='{a.number}', city='{a.city}', postcode='{a.postcode}'");
 
         string Join(params string?[] items) =>
             string.Join(", ", items.Where(s => !string.IsNullOrWhiteSpace(s))!);
-        Console.WriteLine(Join);
-        return Join(
+
+        var composed = Join(
             a.street,
             a.number,
             a.city,
-            a.postcode
+            a.postcode,
+            "Türkiye" // TR aramasını güçlendir
         );
+
+        LOG($"composed address: {composed}");
+        return composed;
     }
 
     private async Task<(double lat, double lng)?> GeocodeAsync(string address, CancellationToken ct)
     {
-        Console.WriteLine("geocode içindeyim");
-        if (string.IsNullOrWhiteSpace(address)) return null;
-
-        var url = $"https://nominatim.openstreetmap.org/search?format=json&limit=1&q={Uri.EscapeDataString(address)}";
-        using var resp = await _httpMap.GetAsync(url, ct);
-        if (!resp.IsSuccessStatusCode) return null;
-
-        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
-        if (doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
-            return null;
-
-        var first = doc.RootElement[0];
-        var latStr = first.GetProperty("lat").GetString();
-        var lonStr = first.GetProperty("lon").GetString();
-        if (double.TryParse(latStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var lat) &&
-            double.TryParse(lonStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var lon))
+        LOG("GeocodeAsync() içindeyim.");
+        if (string.IsNullOrWhiteSpace(address))
         {
-            return (lat, lon);
+            LOG("GeocodeAsync: address boş.");
+            return null;
+        }
+
+        // 1. deneme (verilen adres)
+        var url1 = $"https://nominatim.openstreetmap.org/search" +
+                   $"?format=jsonv2&limit=1&addressdetails=1&accept-language=tr&countrycodes=tr" +
+                   $"&q={Uri.EscapeDataString(address)}";
+
+        var hit = await GeocodeOnce(url1, "TRY#1", ct);
+        if (hit != null) return hit;
+
+        // 2. deneme (Türkiye yoksa sonuna ekleyelim)
+        var altAddress = address.Contains("Türkiye", StringComparison.OrdinalIgnoreCase)
+            ? address
+            : $"{address}, Türkiye";
+
+        var url2 = $"https://nominatim.openstreetmap.org/search" +
+                   $"?format=jsonv2&limit=1&addressdetails=1&accept-language=tr&countrycodes=tr" +
+                   $"&q={Uri.EscapeDataString(altAddress)}";
+
+        return await GeocodeOnce(url2, "TRY#2", ct);
+    }
+
+    private async Task<(double lat, double lng)?> GeocodeOnce(string url, string tag, CancellationToken ct)
+    {
+        LOG($"Geocode {tag} URL => {url}");
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        // Nominatim şartı: geçerli bir UA kullanın (tercihen iletişim içersin)
+        req.Headers.TryAddWithoutValidation("User-Agent", "Yemeksepeti-Route/1.0 (+contact: your-email@example.com)");
+        req.Headers.Referrer = new Uri("https://example.com/ys-plugin"); // opsiyonel ama faydalı
+        req.Headers.Accept.ParseAdd("application/json");
+        req.Headers.AcceptLanguage.ParseAdd("tr");
+
+        using var resp = await _httpMap.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct);
+        LOG($"Geocode {tag} HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        LOG($"Geocode {tag} response (trunc): {Trunc(body)}");
+
+        if (!resp.IsSuccessStatusCode)
+        {
+            LOG($"Geocode {tag} başarısız (status={(int)resp.StatusCode}).");
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+            {
+                var first = doc.RootElement[0];
+                var latStr = first.GetProperty("lat").GetString();
+                var lonStr = first.GetProperty("lon").GetString();
+                var display = first.TryGetProperty("display_name", out var dn) ? dn.GetString() : "";
+
+                LOG($"Geocode {tag} candidate => display_name='{display}', lat='{latStr}', lon='{lonStr}'");
+
+                if (double.TryParse(latStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var lat) &&
+                    double.TryParse(lonStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var lon))
+                {
+                    LOG($"Geocode {tag} OK => lat={lat}, lng={lon}");
+                    return (lat, lon);
+                }
+                LOG($"Geocode {tag} parse edilemedi (lat/lon).");
+            }
+            else
+            {
+                LOG($"Geocode {tag}: sonuç dizisi boş.");
+            }
+        }
+        catch (Exception ex)
+        {
+            LOG($"Geocode {tag} JSON parse hatası: {ex.Message}");
         }
         return null;
     }
 
+
     private async Task<(double distance, double duration, List<double[]> coords)?> OsrmRouteAsync(
-        (double lat, double lng) from, (double lat, double lng) to, CancellationToken ct)
+     (double lat, double lng) from, (double lat, double lng) to, CancellationToken ct)
     {
         string ToLonLat((double lat, double lng) p) =>
             $"{p.lng.ToString(CultureInfo.InvariantCulture)},{p.lat.ToString(CultureInfo.InvariantCulture)}";
 
         var url = $"https://router.project-osrm.org/route/v1/driving/{ToLonLat(from)};{ToLonLat(to)}?overview=full&geometries=geojson";
+        LOG($"OSRM URL => {url}");
+
         using var resp = await _httpMap.GetAsync(url, ct);
+        LOG($"OSRM HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        LOG($"OSRM response (trunc): {Trunc(body)}");
+
         if (!resp.IsSuccessStatusCode) return null;
 
-        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
-        var routes = doc.RootElement.GetProperty("routes");
-        if (routes.GetArrayLength() == 0) return null;
-
-        var r0 = routes[0];
-        var dist = r0.GetProperty("distance").GetDouble();  // meters
-        var dur = r0.GetProperty("duration").GetDouble();   // seconds
-
-        var geom = r0.GetProperty("geometry").GetProperty("coordinates"); // [ [lon,lat], ... ]
-        var coords = new List<double[]>(geom.GetArrayLength());
-        foreach (var pt in geom.EnumerateArray())
+        try
         {
-            var lon = pt[0].GetDouble();
-            var lat = pt[1].GetDouble();
-            coords.Add(new[] { lat, lon }); // Leaflet: [lat,lng]
+            using var doc = JsonDocument.Parse(body);
+            var routes = doc.RootElement.GetProperty("routes");
+            if (routes.GetArrayLength() == 0)
+            {
+                LOG("OSRM: routes[] boş.");
+                return null;
+            }
+
+            var r0 = routes[0];
+            var dist = r0.GetProperty("distance").GetDouble();  // meters
+            var dur = r0.GetProperty("duration").GetDouble();  // seconds
+
+            var geom = r0.GetProperty("geometry").GetProperty("coordinates"); // [ [lon,lat], ... ]
+            var coords = new List<double[]>(geom.GetArrayLength());
+            foreach (var pt in geom.EnumerateArray())
+            {
+                var lon = pt[0].GetDouble();
+                var lat = pt[1].GetDouble();
+                coords.Add(new[] { lat, lon }); // Leaflet: [lat,lng]
+            }
+
+            LOG($"OSRM OK => distance={dist} m, duration={dur} s, points={coords.Count}");
+            return (dist, dur, coords);
         }
-        return (dist, dur, coords);
+        catch (Exception ex)
+        {
+            LOG($"OSRM JSON parse hatası: {ex.Message}");
+            return null;
+        }
     }
 
- 
 
 
 
@@ -314,6 +405,15 @@ public class YemeksepetiController : Controller
 
 
 
+
+    private static void LOG(string msg)
+    => Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {msg}");
+
+    private static string Trunc(string? s, int max = 600)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        return s.Length <= max ? s : s.Substring(0, max) + "...(truncated)";
+    }
 
 
 
