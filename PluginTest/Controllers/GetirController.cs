@@ -172,7 +172,8 @@ namespace PluginTest.Controllers
                 kind = "new",
                 code = body.confirmationId ?? Guid.NewGuid().ToString("N"),
                 total = body.totalPrice,
-                at = DateTime.UtcNow
+                at = DateTime.UtcNow,
+                order=body
             }, JsonOpts);
 
             _orderStream.Publish(payload);

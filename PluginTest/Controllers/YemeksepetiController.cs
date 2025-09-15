@@ -36,7 +36,7 @@ public class YemeksepetiController : Controller
         _opt = opt.Value;
     }
     [HttpPost("order/{remoteId}")]
-    public IActionResult PostOrder([FromRoute] string remoteId,YemeksepetiOrderModel order)
+    public IActionResult PostOrder([FromRoute] string remoteId,YemeksepetiOrderModel body)
     {
      
 
@@ -44,13 +44,14 @@ public class YemeksepetiController : Controller
         {
             source = "Yemeksepeti",
             kind = "new",
-            code = order.code,
-            order.price,
-            at = DateTime.UtcNow
+            code = body.code,
+            body.price,
+            at = DateTime.UtcNow,
+            order=body
         });
 
         _orderStream.Publish(payload);
-        orders.Add(order);
+        orders.Add(body);
         return Ok(new { ok = true });
     }
     public IActionResult Index() => View();
