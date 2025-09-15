@@ -164,38 +164,32 @@ namespace PluginTest.Controllers
         // =====================================================================
 
         [HttpPost("newOrder")]
-        public IActionResult NewOrder([FromBody] JsonElement body)
+        public IActionResult NewOrder([FromBody] FoodOrderEnvelope payload)
         {
-            var code = body.TryGetProperty("confirmationId", out var c) && c.ValueKind == JsonValueKind.String
-                       ? c.GetString()
-                       : Guid.NewGuid().ToString("N");
+            var order = payload?.foodOrder;
+            if (order is null) return BadRequest("foodOrder boş.");
 
-            decimal? total = null;
-            if (body.TryGetProperty("totalPrice", out var t))
-                if (t.ValueKind == JsonValueKind.Number && t.TryGetDecimal(out var d)) total = d;
-
-            var payload = JsonSerializer.Serialize(new
+            var payloadJson = JsonSerializer.Serialize(new
             {
                 source = "Getir",
                 kind = "new",
-                code,
-                total,
+                code = order.confirmationId ?? Guid.NewGuid().ToString("N"),
+                total = order.totalPrice,
                 at = DateTime.UtcNow,
-                order = body
+                order
             }, JsonOpts);
 
-            _orderStream.Publish(payload);
-
+            _orderStream.Publish(payloadJson);
             Console.WriteLine("new order body is:");
-            Console.WriteLine(body.GetRawText());
-
+            Console.WriteLine(JsonSerializer.Serialize(order, JsonOpts));
             return Ok(new { ok = true });
         }
 
         [HttpPost("cancelOrder")]
-        public IActionResult CancelOrderEvent([FromBody] FoodOrderResponse body)
+        public IActionResult CancelOrderEvent([FromBody] FoodOrderEnvelope payload)
         {
-            var payload = JsonSerializer.Serialize(new
+            var body = payload?.foodOrder;
+            var payloadJson = JsonSerializer.Serialize(new
             {
                 source = "Getir",
                 kind = "cancel",
@@ -204,7 +198,7 @@ namespace PluginTest.Controllers
                 at = DateTime.UtcNow
             }, JsonOpts);
 
-            _orderStream.Publish(payload);
+            _orderStream.Publish(payloadJson);
             return Ok(new { ok = true });
         }
 
@@ -1421,6 +1415,10 @@ public class MapPointDto
         public bool? isStatusChangedByUser { get; set; }
         public int? closedSource { get; set; }
     }
+public class FoodOrderEnvelope
+{
+    public FoodOrderResponse foodOrder { get; set; }
+}
 
 
 
@@ -1438,9 +1436,8 @@ public class MapPointDto
 
 
 
- 
 
-    public class LoginRequest
+public class LoginRequest
     {
         public string appSecretKey { get; set; }
         public string restaurantSecretKey { get; set; }
