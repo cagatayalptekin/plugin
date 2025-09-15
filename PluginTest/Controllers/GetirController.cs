@@ -177,7 +177,7 @@ namespace PluginTest.Controllers
             }, JsonOpts);
 
             _orderStream.Publish(payload);
-            Console.WriteLine(JsonSerializer.Serialize(body));
+            Console.WriteLine(JsonSerializer.Serialize(payload));
             return Ok(new { ok = true });
         }
 
