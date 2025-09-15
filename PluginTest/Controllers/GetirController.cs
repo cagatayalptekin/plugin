@@ -164,20 +164,31 @@ namespace PluginTest.Controllers
         // =====================================================================
 
         [HttpPost("newOrder")]
-        public IActionResult NewOrder([FromBody] FoodOrderResponse body)
+        public IActionResult NewOrder([FromBody] JsonElement body)
         {
+            var code = body.TryGetProperty("confirmationId", out var c) && c.ValueKind == JsonValueKind.String
+                       ? c.GetString()
+                       : Guid.NewGuid().ToString("N");
+
+            decimal? total = null;
+            if (body.TryGetProperty("totalPrice", out var t))
+                if (t.ValueKind == JsonValueKind.Number && t.TryGetDecimal(out var d)) total = d;
+
             var payload = JsonSerializer.Serialize(new
             {
                 source = "Getir",
                 kind = "new",
-                code = body.confirmationId ?? Guid.NewGuid().ToString("N"),
-                total = body.totalPrice,
+                code,
+                total,
                 at = DateTime.UtcNow,
-                order=body
+                order = body
             }, JsonOpts);
 
             _orderStream.Publish(payload);
-            Console.WriteLine(JsonSerializer.Serialize(payload));
+
+            Console.WriteLine("new order body is:");
+            Console.WriteLine(body.GetRawText());
+
             return Ok(new { ok = true });
         }
 
