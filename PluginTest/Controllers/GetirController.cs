@@ -319,7 +319,7 @@ ORDER BY ISNULL(CheckoutDate, CreatedAtUtc) DESC";
         {
             var order = payload?.foodOrder;
             if (order is null) return BadRequest("foodOrder boş.");
-            await UpsertOrderAsync(order);   // << EKLEDİK
+         //   await UpsertOrderAsync(order);   // << EKLEDİK
             var payloadJson = JsonSerializer.Serialize(new
             {
                 source = "Getir",
@@ -367,9 +367,17 @@ ORDER BY ISNULL(CheckoutDate, CreatedAtUtc) DESC";
             var resp = await http.PostAsync($"{BaseUrl}/food-orders/active",
                 new StringContent("", Encoding.UTF8, "application/json"));
 
+
+
+
             var body = await resp.Content.ReadAsStringAsync();
             if (!resp.IsSuccessStatusCode) throw new Exception(body);
-
+            var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(body, JsonOpts);
+            foreach (var order in orders)
+            {
+                await UpsertOrderAsync(order);   // << EKLEDİK
+            }
+            
             return JsonSerializer.Deserialize<List<FoodOrderResponse>>(body, JsonOpts) ?? new();
         }
 

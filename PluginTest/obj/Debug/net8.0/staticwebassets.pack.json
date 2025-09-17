@@ -5,6 +5,26 @@
       "PackagePath": "staticwebassets\\assets\\background.jpg"
     },
     {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\leaflet\\layers-2x.png",
+      "PackagePath": "staticwebassets\\assets\\leaflet\\layers-2x.png"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\leaflet\\layers.png",
+      "PackagePath": "staticwebassets\\assets\\leaflet\\layers.png"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\leaflet\\marker-icon-2x.png",
+      "PackagePath": "staticwebassets\\assets\\leaflet\\marker-icon-2x.png"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\leaflet\\marker-icon.png",
+      "PackagePath": "staticwebassets\\assets\\leaflet\\marker-icon.png"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\leaflet\\marker-shadow.png",
+      "PackagePath": "staticwebassets\\assets\\leaflet\\marker-shadow.png"
+    },
+    {
       "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\logo.png",
       "PackagePath": "staticwebassets\\assets\\logo.png"
     },
@@ -17,6 +37,14 @@
       "PackagePath": "staticwebassets\\assets\\loxxgo.png"
     },
     {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\map-marker-2-xxl.png",
+      "PackagePath": "staticwebassets\\assets\\map-marker-2-xxl.png"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\marker-xxl.png",
+      "PackagePath": "staticwebassets\\assets\\marker-xxl.png"
+    },
+    {
       "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\assets\\restaurant_icon.png",
       "PackagePath": "staticwebassets\\assets\\restaurant_icon.png"
     },
@@ -25,8 +53,20 @@
       "PackagePath": "staticwebassets\\index.html"
     },
     {
-      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\main-RNZTGFQW.js",
-      "PackagePath": "staticwebassets\\main-RNZTGFQW.js"
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\main-ARCCAOK4.js",
+      "PackagePath": "staticwebassets\\main-ARCCAOK4.js"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\layers-2x-TBM42ERR.png",
+      "PackagePath": "staticwebassets\\media\\layers-2x-TBM42ERR.png"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\layers-55W3Q4RM.png",
+      "PackagePath": "staticwebassets\\media\\layers-55W3Q4RM.png"
+    },
+    {
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\marker-icon-2V3QKKVC.png",
+      "PackagePath": "staticwebassets\\media\\marker-icon-2V3QKKVC.png"
     },
     {
       "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\media\\primeicons-4GST5W3O.woff2",
@@ -57,8 +97,8 @@
       "PackagePath": "staticwebassets\\scripts-IGA7JNQP.js"
     },
     {
-      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\styles-JDY3AM5C.css",
-      "PackagePath": "staticwebassets\\styles-JDY3AM5C.css"
+      "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\styles-IXSLT5CU.css",
+      "PackagePath": "staticwebassets\\styles-IXSLT5CU.css"
     },
     {
       "Id": "C:\\Users\\90539\\Desktop\\plgtest\\PluginTest\\wwwroot\\uploads\\getir-logo.png",
