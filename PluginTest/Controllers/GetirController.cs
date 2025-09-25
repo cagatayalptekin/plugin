@@ -39,7 +39,7 @@ namespace PluginTest.Controllers
             _orderStream = orderStream;
             _opt = opt.Value;
             _http = http;
-            _cs = cfg.GetConnectionString("LocalDb");   // << EKLE
+            //_cs = cfg.GetConnectionString("LocalDb");   // << EKLE
         }
 
         // ====== Consts & Shared ======
@@ -281,106 +281,106 @@ namespace PluginTest.Controllers
             return null;
         }
 
-        private async Task UpsertOrderAsync(FoodOrderResponse o)
-        {
-            using var cn = new SqlConnection(_cs);
-            await cn.OpenAsync();
+//        private async Task UpsertOrderAsync(FoodOrderResponse o)
+//        {
+//            using var cn = new SqlConnection(_cs);
+//            await cn.OpenAsync();
 
-            var raw = JsonSerializer.Serialize(o, JsonOpts);
+//            var raw = JsonSerializer.Serialize(o, JsonOpts);
 
-            // UPSERT ana kayıt
-            var cmd = new SqlCommand(@"
-MERGE dbo.GETIR_ORDERS AS T
-USING (SELECT @OrderId AS OrderId) AS S
-ON (T.OrderId = S.OrderId)
-WHEN MATCHED THEN UPDATE SET
-    Status               = @Status,
-    IsScheduled          = @IsScheduled,
-    ConfirmationId       = @ConfirmationId,
-    ClientId             = @ClientId,
-    ClientName           = @ClientName,
-    ClientPhone          = @ClientPhone,
-    Address              = @Address,
-    City                 = @City,
-    District             = @District,
-    CheckoutDate         = @CheckoutDate,
-    ScheduledDate        = @ScheduledDate,
-    DeliveryType         = @DeliveryType,
-    TotalPrice           = @TotalPrice,
-    TotalDiscountedPrice = @TotalDiscountedPrice,
-    PaymentMethod        = @PaymentMethod,
-    PaymentMethodTextTr  = @PaymentMethodTextTr,
-    PaymentMethodTextEn  = @PaymentMethodTextEn,
-    ClientNote           = @ClientNote,
-    RestaurantId         = @RestaurantId,
-    RestaurantName       = @RestaurantName,
-    RawJson              = @RawJson,
-    UpdatedAtUtc         = SYSUTCDATETIME()
-WHEN NOT MATCHED THEN INSERT
-    (OrderId, Status, IsScheduled, ConfirmationId, ClientId, ClientName, ClientPhone,
-     Address, City, District, CheckoutDate, ScheduledDate, DeliveryType,
-     TotalPrice, TotalDiscountedPrice, PaymentMethod, PaymentMethodTextTr, PaymentMethodTextEn,
-     ClientNote, RestaurantId, RestaurantName, RawJson)
-VALUES
-    (@OrderId, @Status, @IsScheduled, @ConfirmationId, @ClientId, @ClientName, @ClientPhone,
-     @Address, @City, @District, @CheckoutDate, @ScheduledDate, @DeliveryType,
-     @TotalPrice, @TotalDiscountedPrice, @PaymentMethod, @PaymentMethodTextTr, @PaymentMethodTextEn,
-     @ClientNote, @RestaurantId, @RestaurantName, @RawJson);
-", cn);
+//            // UPSERT ana kayıt
+//            var cmd = new SqlCommand(@"
+//MERGE dbo.GETIR_ORDERS AS T
+//USING (SELECT @OrderId AS OrderId) AS S
+//ON (T.OrderId = S.OrderId)
+//WHEN MATCHED THEN UPDATE SET
+//    Status               = @Status,
+//    IsScheduled          = @IsScheduled,
+//    ConfirmationId       = @ConfirmationId,
+//    ClientId             = @ClientId,
+//    ClientName           = @ClientName,
+//    ClientPhone          = @ClientPhone,
+//    Address              = @Address,
+//    City                 = @City,
+//    District             = @District,
+//    CheckoutDate         = @CheckoutDate,
+//    ScheduledDate        = @ScheduledDate,
+//    DeliveryType         = @DeliveryType,
+//    TotalPrice           = @TotalPrice,
+//    TotalDiscountedPrice = @TotalDiscountedPrice,
+//    PaymentMethod        = @PaymentMethod,
+//    PaymentMethodTextTr  = @PaymentMethodTextTr,
+//    PaymentMethodTextEn  = @PaymentMethodTextEn,
+//    ClientNote           = @ClientNote,
+//    RestaurantId         = @RestaurantId,
+//    RestaurantName       = @RestaurantName,
+//    RawJson              = @RawJson,
+//    UpdatedAtUtc         = SYSUTCDATETIME()
+//WHEN NOT MATCHED THEN INSERT
+//    (OrderId, Status, IsScheduled, ConfirmationId, ClientId, ClientName, ClientPhone,
+//     Address, City, District, CheckoutDate, ScheduledDate, DeliveryType,
+//     TotalPrice, TotalDiscountedPrice, PaymentMethod, PaymentMethodTextTr, PaymentMethodTextEn,
+//     ClientNote, RestaurantId, RestaurantName, RawJson)
+//VALUES
+//    (@OrderId, @Status, @IsScheduled, @ConfirmationId, @ClientId, @ClientName, @ClientPhone,
+//     @Address, @City, @District, @CheckoutDate, @ScheduledDate, @DeliveryType,
+//     @TotalPrice, @TotalDiscountedPrice, @PaymentMethod, @PaymentMethodTextTr, @PaymentMethodTextEn,
+//     @ClientNote, @RestaurantId, @RestaurantName, @RawJson);
+//", cn);
 
-            var addr = o.client?.deliveryAddress;
-            cmd.Parameters.AddWithValue("@OrderId", (object?)o.id ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@Status", (object?)o.status ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@IsScheduled", (object?)o.isScheduled ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@ConfirmationId", (object?)o.confirmationId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@ClientId", (object?)o.client?.id ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@ClientName", (object?)o.client?.name ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@ClientPhone", (object?)(
-                o.client?.clientUnmaskedPhoneNumber ??
-                o.client?.clientPhoneNumber ??
-                o.client?.contactPhoneNumber) ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@Address", (object?)addr?.address ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@City", (object?)addr?.city ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@District", (object?)addr?.district ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@CheckoutDate", (object?)ParseDate(o.checkoutDate) ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@ScheduledDate", (object?)ParseDate(o.scheduledDate) ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@DeliveryType", (object?)o.deliveryType ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@TotalPrice", (object?)o.totalPrice ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@TotalDiscountedPrice", (object?)o.totalDiscountedPrice ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@PaymentMethod", (object?)o.paymentMethod ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@PaymentMethodTextTr", (object?)o.paymentMethodText?.tr ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@PaymentMethodTextEn", (object?)o.paymentMethodText?.en ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@ClientNote", (object?)o.clientNote ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@RestaurantId", (object?)o.restaurant?.id ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@RestaurantName", (object?)o.restaurant?.name ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@RawJson", raw);
+//            var addr = o.client?.deliveryAddress;
+//            cmd.Parameters.AddWithValue("@OrderId", (object?)o.id ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@Status", (object?)o.status ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@IsScheduled", (object?)o.isScheduled ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@ConfirmationId", (object?)o.confirmationId ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@ClientId", (object?)o.client?.id ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@ClientName", (object?)o.client?.name ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@ClientPhone", (object?)(
+//                o.client?.clientUnmaskedPhoneNumber ??
+//                o.client?.clientPhoneNumber ??
+//                o.client?.contactPhoneNumber) ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@Address", (object?)addr?.address ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@City", (object?)addr?.city ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@District", (object?)addr?.district ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@CheckoutDate", (object?)ParseDate(o.checkoutDate) ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@ScheduledDate", (object?)ParseDate(o.scheduledDate) ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@DeliveryType", (object?)o.deliveryType ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@TotalPrice", (object?)o.totalPrice ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@TotalDiscountedPrice", (object?)o.totalDiscountedPrice ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@PaymentMethod", (object?)o.paymentMethod ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@PaymentMethodTextTr", (object?)o.paymentMethodText?.tr ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@PaymentMethodTextEn", (object?)o.paymentMethodText?.en ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@ClientNote", (object?)o.clientNote ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@RestaurantId", (object?)o.restaurant?.id ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@RestaurantName", (object?)o.restaurant?.name ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@RawJson", raw);
 
-            await cmd.ExecuteNonQueryAsync();
+//            await cmd.ExecuteNonQueryAsync();
 
-            // Ürünleri tazele
-            var del = new SqlCommand("DELETE FROM dbo.GETIR_ORDER_PRODUCTS WHERE OrderId=@OrderId", cn);
-            del.Parameters.AddWithValue("@OrderId", (object?)o.id ?? DBNull.Value);
-            await del.ExecuteNonQueryAsync();
+//            // Ürünleri tazele
+//            var del = new SqlCommand("DELETE FROM dbo.GETIR_ORDER_PRODUCTS WHERE OrderId=@OrderId", cn);
+//            del.Parameters.AddWithValue("@OrderId", (object?)o.id ?? DBNull.Value);
+//            await del.ExecuteNonQueryAsync();
 
-            if (o.products != null && o.products.Count > 0)
-            {
-                foreach (var p in o.products)
-                {
-                    var ins = new SqlCommand(@"
-INSERT INTO dbo.GETIR_ORDER_PRODUCTS(OrderId, ProductId, NameTr, NameEn, Qty, Price, TotalPrice)
-VALUES(@OrderId, @ProductId, @NameTr, @NameEn, @Qty, @Price, @TotalPrice);
-", cn);
-                    ins.Parameters.AddWithValue("@OrderId", (object?)o.id ?? DBNull.Value);
-                    ins.Parameters.AddWithValue("@ProductId", (object?)p.id ?? DBNull.Value);
-                    ins.Parameters.AddWithValue("@NameTr", (object?)p.name?.tr ?? (object?)p.product ?? DBNull.Value);
-                    ins.Parameters.AddWithValue("@NameEn", (object?)p.name?.en ?? DBNull.Value);
-                    ins.Parameters.AddWithValue("@Qty", (object?)p.count ?? DBNull.Value);
-                    ins.Parameters.AddWithValue("@Price", (object?)p.price ?? DBNull.Value);
-                    ins.Parameters.AddWithValue("@TotalPrice", (object?)p.totalPrice ?? (object?)p.totalPriceWithOption ?? DBNull.Value);
-                    await ins.ExecuteNonQueryAsync();
-                }
-            }
-        }
+//            if (o.products != null && o.products.Count > 0)
+//            {
+//                foreach (var p in o.products)
+//                {
+//                    var ins = new SqlCommand(@"
+//INSERT INTO dbo.GETIR_ORDER_PRODUCTS(OrderId, ProductId, NameTr, NameEn, Qty, Price, TotalPrice)
+//VALUES(@OrderId, @ProductId, @NameTr, @NameEn, @Qty, @Price, @TotalPrice);
+//", cn);
+//                    ins.Parameters.AddWithValue("@OrderId", (object?)o.id ?? DBNull.Value);
+//                    ins.Parameters.AddWithValue("@ProductId", (object?)p.id ?? DBNull.Value);
+//                    ins.Parameters.AddWithValue("@NameTr", (object?)p.name?.tr ?? (object?)p.product ?? DBNull.Value);
+//                    ins.Parameters.AddWithValue("@NameEn", (object?)p.name?.en ?? DBNull.Value);
+//                    ins.Parameters.AddWithValue("@Qty", (object?)p.count ?? DBNull.Value);
+//                    ins.Parameters.AddWithValue("@Price", (object?)p.price ?? DBNull.Value);
+//                    ins.Parameters.AddWithValue("@TotalPrice", (object?)p.totalPrice ?? (object?)p.totalPriceWithOption ?? DBNull.Value);
+//                    await ins.ExecuteNonQueryAsync();
+//                }
+//            }
+//        }
 
         // =====================================================================
         // =============  POS / KURYE AÇ-KAPA  (Restaurant & Courier) ==========
@@ -430,37 +430,37 @@ public class PastOrderDto
             public FoodOrderResponse Order { get; set; } = new();
         }
 
-        [HttpGet("food-orders/past")]
-        public async Task<IActionResult> GetPastOrders([FromQuery] string? start, [FromQuery] string? end, [FromQuery] int take = 100)
-        {
-            DateTime? s = ParseDate(start);
-            DateTime? e = ParseDate(end);
+//        [HttpGet("food-orders/past")]
+//        public async Task<IActionResult> GetPastOrders([FromQuery] string? start, [FromQuery] string? end, [FromQuery] int take = 100)
+//        {
+//            DateTime? s = ParseDate(start);
+//            DateTime? e = ParseDate(end);
 
-            using var cn = new SqlConnection(_cs);
-            await cn.OpenAsync();
+//            using var cn = new SqlConnection(_cs);
+//            await cn.OpenAsync();
 
-            var sql = @"
-SELECT TOP (@Take) RawJson
-FROM dbo.GETIR_ORDERS WITH (NOLOCK)
-WHERE (@S IS NULL OR CheckoutDate >= @S)
-  AND (@E IS NULL OR CheckoutDate <  @E)
-ORDER BY ISNULL(CheckoutDate, CreatedAtUtc) DESC";
+//            var sql = @"
+//SELECT TOP (@Take) RawJson
+//FROM dbo.GETIR_ORDERS WITH (NOLOCK)
+//WHERE (@S IS NULL OR CheckoutDate >= @S)
+//  AND (@E IS NULL OR CheckoutDate <  @E)
+//ORDER BY ISNULL(CheckoutDate, CreatedAtUtc) DESC";
 
-            var cmd = new SqlCommand(sql, cn);
-            cmd.Parameters.AddWithValue("@Take", take);
-            cmd.Parameters.AddWithValue("@S", (object?)s ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@E", (object?)e ?? DBNull.Value);
+//            var cmd = new SqlCommand(sql, cn);
+//            cmd.Parameters.AddWithValue("@Take", take);
+//            cmd.Parameters.AddWithValue("@S", (object?)s ?? DBNull.Value);
+//            cmd.Parameters.AddWithValue("@E", (object?)e ?? DBNull.Value);
 
-            var list = new List<PastOrderDto>();
-            using var rd = await cmd.ExecuteReaderAsync();
-            while (await rd.ReadAsync())
-            {
-                var raw = rd.GetString(0);
-                var o = JsonSerializer.Deserialize<FoodOrderResponse>(raw, JsonOpts) ?? new FoodOrderResponse();
-                list.Add(new PastOrderDto { Order = o });
-            }
-            return Ok(list);
-        }
+//            var list = new List<PastOrderDto>();
+//            using var rd = await cmd.ExecuteReaderAsync();
+//            while (await rd.ReadAsync())
+//            {
+//                var raw = rd.GetString(0);
+//                var o = JsonSerializer.Deserialize<FoodOrderResponse>(raw, JsonOpts) ?? new FoodOrderResponse();
+//                list.Add(new PastOrderDto { Order = o });
+//            }
+//            return Ok(list);
+//        }
         // =====================================================================
         // ======================  ORDER STREAM (BİZİM EVENT)  =================
         // =====================================================================
@@ -524,10 +524,10 @@ ORDER BY ISNULL(CheckoutDate, CreatedAtUtc) DESC";
             var body = await resp.Content.ReadAsStringAsync();
             if (!resp.IsSuccessStatusCode) throw new Exception(body);
             var orders = JsonSerializer.Deserialize<List<FoodOrderResponse>>(body, JsonOpts);
-            foreach (var order in orders)
-            {
-                await UpsertOrderAsync(order);   // << EKLEDİK
-            }
+            //foreach (var order in orders)
+            //{
+            //    await UpsertOrderAsync(order);   // << EKLEDİK
+            //}
             
             return JsonSerializer.Deserialize<List<FoodOrderResponse>>(body, JsonOpts) ?? new();
         }

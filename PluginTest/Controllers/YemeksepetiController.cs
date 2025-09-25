@@ -55,178 +55,178 @@ public class YemeksepetiController : Controller
 
         _orderStream.Publish(payload);
         orders.Add(body);
-        try
-        {
-            SaveOrderToDbAsync(body);
-        }
-        catch (Exception ex)
-        {
-            // Loglayabilirsin
-            Console.WriteLine("YS Order DB insert error: " + ex.Message);
-        }
+        //try
+        //{
+        //    SaveOrderToDbAsync(body);
+        //}
+        //catch (Exception ex)
+        //{
+        //    // Loglayabilirsin
+        //    Console.WriteLine("YS Order DB insert error: " + ex.Message);
+        //}
         return Ok(new { ok = true });
     }
-    [HttpGet("orders/history")]
-    public async Task<IActionResult> GetOrderHistory([FromQuery] string startDate, [FromQuery] string endDate,
-    [FromQuery] string? restaurantId, [FromQuery] string? code)
-    {
-        if (!DateTime.TryParse(startDate, out var start)) return BadRequest("startDate hatalı");
-        if (!DateTime.TryParse(endDate, out var end)) return BadRequest("endDate hatalı");
+//    [HttpGet("orders/history")]
+//    public async Task<IActionResult> GetOrderHistory([FromQuery] string startDate, [FromQuery] string endDate,
+//    [FromQuery] string? restaurantId, [FromQuery] string? code)
+//    {
+//        if (!DateTime.TryParse(startDate, out var start)) return BadRequest("startDate hatalı");
+//        if (!DateTime.TryParse(endDate, out var end)) return BadRequest("endDate hatalı");
 
-        var cs = _config.GetConnectionString("DefaultConnection");
-        await using var conn = new SqlConnection(cs);
-        await conn.OpenAsync();
+//        var cs = _config.GetConnectionString("DefaultConnection");
+//        await using var conn = new SqlConnection(cs);
+//        await conn.OpenAsync();
 
-        var sql = @"
-SELECT RawJson
-FROM [ADABALIK].[dbo].[YEMEKSEPETI_ORDERS]
-WHERE CreatedAtUtc >= @start AND CreatedAtUtc <= @end
-";
-        if (!string.IsNullOrWhiteSpace(restaurantId)) sql += " AND RestaurantId = @restaurantId";
-        if (!string.IsNullOrWhiteSpace(code)) sql += " AND Code = @code";
+//        var sql = @"
+//SELECT RawJson
+//FROM [ADABALIK].[dbo].[YEMEKSEPETI_ORDERS]
+//WHERE CreatedAtUtc >= @start AND CreatedAtUtc <= @end
+//";
+//        if (!string.IsNullOrWhiteSpace(restaurantId)) sql += " AND RestaurantId = @restaurantId";
+//        if (!string.IsNullOrWhiteSpace(code)) sql += " AND Code = @code";
 
-        await using var cmd = new SqlCommand(sql, conn);
-        cmd.Parameters.AddWithValue("@start", start);
-        cmd.Parameters.AddWithValue("@end", end);
-        if (!string.IsNullOrWhiteSpace(restaurantId)) cmd.Parameters.AddWithValue("@restaurantId", restaurantId);
-        if (!string.IsNullOrWhiteSpace(code)) cmd.Parameters.AddWithValue("@code", code);
+//        await using var cmd = new SqlCommand(sql, conn);
+//        cmd.Parameters.AddWithValue("@start", start);
+//        cmd.Parameters.AddWithValue("@end", end);
+//        if (!string.IsNullOrWhiteSpace(restaurantId)) cmd.Parameters.AddWithValue("@restaurantId", restaurantId);
+//        if (!string.IsNullOrWhiteSpace(code)) cmd.Parameters.AddWithValue("@code", code);
 
-        var list = new List<YemeksepetiOrderModel>();
-        await using var r = await cmd.ExecuteReaderAsync();
-        while (await r.ReadAsync())
-        {
-            var raw = r.GetString(0);
-            try
-            {
-                var o = JsonSerializer.Deserialize<YemeksepetiOrderModel>(raw);
-                if (o != null) list.Add(o);
-            }
-            catch { /* yut */ }
-        }
+//        var list = new List<YemeksepetiOrderModel>();
+//        await using var r = await cmd.ExecuteReaderAsync();
+//        while (await r.ReadAsync())
+//        {
+//            var raw = r.GetString(0);
+//            try
+//            {
+//                var o = JsonSerializer.Deserialize<YemeksepetiOrderModel>(raw);
+//                if (o != null) list.Add(o);
+//            }
+//            catch { /* yut */ }
+//        }
 
-        return Ok(list);
-    }
-    private async Task SaveOrderToDbAsync(YemeksepetiOrderModel model)
-    {
-        // ADABALIK > dbo.YEMEKSEPETI_ORDERS (alt SQL scriptte var)
-        var cs = _config.GetConnectionString("DefaultConnection");
-        await using var conn = new SqlConnection(cs);
-        await conn.OpenAsync();
+//        return Ok(list);
+//    }
+//    private async Task SaveOrderToDbAsync(YemeksepetiOrderModel model)
+//    {
+//        // ADABALIK > dbo.YEMEKSEPETI_ORDERS (alt SQL scriptte var)
+//        var cs = _config.GetConnectionString("DefaultConnection");
+//        await using var conn = new SqlConnection(cs);
+//        await conn.OpenAsync();
 
-        var rawJson = JsonSerializer.Serialize(model);
+//        var rawJson = JsonSerializer.Serialize(model);
 
-        var cmd = new SqlCommand(@"
-INSERT INTO [ADABALIK].[dbo].[YEMEKSEPETI_ORDERS]
-(
-    Code,
-    CreatedAtUtc,
-    ExpectedDeliveryTimeUtc,
-    RiderPickupTimeUtc,
-    PickupTimeUtc,
-    ExpeditionType,
-    Platform,
-    PlatformKey,
-    CountryCode,
-    CurrencySymbol,
-    PaymentType,
-    PaymentStatus,
-    CustomerFirstName,
-    CustomerLastName,
-    CustomerEmail,
-    CustomerMobile,
-    AddressCity,
-    AddressStreet,
-    AddressNumber,
-    AddressPostcode,
-    GrandTotal,
-    TotalNet,
-    VatTotal,
-    RiderTip,
-    CollectFromCustomer,
-    PayRestaurant,
-    CorporateTaxId,
-    RestaurantId,
-    CustomerComment,
-    RawJson
-)
-VALUES
-(
-    @Code,
-    @CreatedAtUtc,
-    @ExpectedDeliveryTimeUtc,
-    @RiderPickupTimeUtc,
-    @PickupTimeUtc,
-    @ExpeditionType,
-    @Platform,
-    @PlatformKey,
-    @CountryCode,
-    @CurrencySymbol,
-    @PaymentType,
-    @PaymentStatus,
-    @CustomerFirstName,
-    @CustomerLastName,
-    @CustomerEmail,
-    @CustomerMobile,
-    @AddressCity,
-    @AddressStreet,
-    @AddressNumber,
-    @AddressPostcode,
-    @GrandTotal,
-    @TotalNet,
-    @VatTotal,
-    @RiderTip,
-    @CollectFromCustomer,
-    @PayRestaurant,
-    @CorporateTaxId,
-    @RestaurantId,
-    @CustomerComment,
-    @RawJson
-);", conn);
+//        var cmd = new SqlCommand(@"
+//INSERT INTO [ADABALIK].[dbo].[YEMEKSEPETI_ORDERS]
+//(
+//    Code,
+//    CreatedAtUtc,
+//    ExpectedDeliveryTimeUtc,
+//    RiderPickupTimeUtc,
+//    PickupTimeUtc,
+//    ExpeditionType,
+//    Platform,
+//    PlatformKey,
+//    CountryCode,
+//    CurrencySymbol,
+//    PaymentType,
+//    PaymentStatus,
+//    CustomerFirstName,
+//    CustomerLastName,
+//    CustomerEmail,
+//    CustomerMobile,
+//    AddressCity,
+//    AddressStreet,
+//    AddressNumber,
+//    AddressPostcode,
+//    GrandTotal,
+//    TotalNet,
+//    VatTotal,
+//    RiderTip,
+//    CollectFromCustomer,
+//    PayRestaurant,
+//    CorporateTaxId,
+//    RestaurantId,
+//    CustomerComment,
+//    RawJson
+//)
+//VALUES
+//(
+//    @Code,
+//    @CreatedAtUtc,
+//    @ExpectedDeliveryTimeUtc,
+//    @RiderPickupTimeUtc,
+//    @PickupTimeUtc,
+//    @ExpeditionType,
+//    @Platform,
+//    @PlatformKey,
+//    @CountryCode,
+//    @CurrencySymbol,
+//    @PaymentType,
+//    @PaymentStatus,
+//    @CustomerFirstName,
+//    @CustomerLastName,
+//    @CustomerEmail,
+//    @CustomerMobile,
+//    @AddressCity,
+//    @AddressStreet,
+//    @AddressNumber,
+//    @AddressPostcode,
+//    @GrandTotal,
+//    @TotalNet,
+//    @VatTotal,
+//    @RiderTip,
+//    @CollectFromCustomer,
+//    @PayRestaurant,
+//    @CorporateTaxId,
+//    @RestaurantId,
+//    @CustomerComment,
+//    @RawJson
+//);", conn);
 
-        // paramlar
-        cmd.Parameters.AddWithValue("@Code", (object?)model.code ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@CreatedAtUtc", (object?)model.createdAt ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@ExpectedDeliveryTimeUtc", (object?)model.delivery?.expectedDeliveryTime ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@RiderPickupTimeUtc", (object?)model.delivery?.riderPickupTime ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@PickupTimeUtc", (object?)model.pickup?.pickupTime ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@ExpeditionType", (object?)model.expeditionType ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@Platform", (object?)model.localInfo?.platform ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@PlatformKey", (object?)model.localInfo?.platformKey ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@CountryCode", (object?)model.localInfo?.countryCode ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@CurrencySymbol", (object?)model.localInfo?.currencySymbol ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@PaymentType", (object?)model.payment?.type ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@PaymentStatus", (object?)model.payment?.status ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@CustomerFirstName", (object?)model.customer?.firstName ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@CustomerLastName", (object?)model.customer?.lastName ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@CustomerEmail", (object?)model.customer?.email ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@CustomerMobile", (object?)model.customer?.mobilePhone ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@AddressCity", (object?)model.delivery?.address?.city ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@AddressStreet", (object?)model.delivery?.address?.street ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@AddressNumber", (object?)model.delivery?.address?.number ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@AddressPostcode", (object?)model.delivery?.address?.postcode ?? DBNull.Value);
-        // Sayısal alanlar double/string gelebilir; parse etmeye çalış:
-        cmd.Parameters.AddWithValue("@GrandTotal", TryDec(model.price?.grandTotal));
-        cmd.Parameters.AddWithValue("@TotalNet", TryDec(model.price?.totalNet));
-        cmd.Parameters.AddWithValue("@VatTotal", TryDec(model.price?.vatTotal));
-        cmd.Parameters.AddWithValue("@RiderTip", TryDec(model.price?.riderTip));
-        cmd.Parameters.AddWithValue("@CollectFromCustomer", TryDec(model.price?.collectFromCustomer));
-        cmd.Parameters.AddWithValue("@PayRestaurant", TryDec(model.price?.payRestaurant));
-        cmd.Parameters.AddWithValue("@CorporateTaxId", (object?)model.corporateTaxId ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@RestaurantId", (object?)model.platformRestaurant?.id ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@CustomerComment", (object?)model.comments?.customerComment ?? DBNull.Value);
-        cmd.Parameters.Add("@RawJson", SqlDbType.NVarChar, -1).Value = (object)rawJson ?? DBNull.Value;
+//        // paramlar
+//        cmd.Parameters.AddWithValue("@Code", (object?)model.code ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@CreatedAtUtc", (object?)model.createdAt ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@ExpectedDeliveryTimeUtc", (object?)model.delivery?.expectedDeliveryTime ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@RiderPickupTimeUtc", (object?)model.delivery?.riderPickupTime ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@PickupTimeUtc", (object?)model.pickup?.pickupTime ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@ExpeditionType", (object?)model.expeditionType ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@Platform", (object?)model.localInfo?.platform ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@PlatformKey", (object?)model.localInfo?.platformKey ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@CountryCode", (object?)model.localInfo?.countryCode ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@CurrencySymbol", (object?)model.localInfo?.currencySymbol ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@PaymentType", (object?)model.payment?.type ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@PaymentStatus", (object?)model.payment?.status ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@CustomerFirstName", (object?)model.customer?.firstName ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@CustomerLastName", (object?)model.customer?.lastName ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@CustomerEmail", (object?)model.customer?.email ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@CustomerMobile", (object?)model.customer?.mobilePhone ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@AddressCity", (object?)model.delivery?.address?.city ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@AddressStreet", (object?)model.delivery?.address?.street ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@AddressNumber", (object?)model.delivery?.address?.number ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@AddressPostcode", (object?)model.delivery?.address?.postcode ?? DBNull.Value);
+//        // Sayısal alanlar double/string gelebilir; parse etmeye çalış:
+//        cmd.Parameters.AddWithValue("@GrandTotal", TryDec(model.price?.grandTotal));
+//        cmd.Parameters.AddWithValue("@TotalNet", TryDec(model.price?.totalNet));
+//        cmd.Parameters.AddWithValue("@VatTotal", TryDec(model.price?.vatTotal));
+//        cmd.Parameters.AddWithValue("@RiderTip", TryDec(model.price?.riderTip));
+//        cmd.Parameters.AddWithValue("@CollectFromCustomer", TryDec(model.price?.collectFromCustomer));
+//        cmd.Parameters.AddWithValue("@PayRestaurant", TryDec(model.price?.payRestaurant));
+//        cmd.Parameters.AddWithValue("@CorporateTaxId", (object?)model.corporateTaxId ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@RestaurantId", (object?)model.platformRestaurant?.id ?? DBNull.Value);
+//        cmd.Parameters.AddWithValue("@CustomerComment", (object?)model.comments?.customerComment ?? DBNull.Value);
+//        cmd.Parameters.Add("@RawJson", SqlDbType.NVarChar, -1).Value = (object)rawJson ?? DBNull.Value;
 
-        await cmd.ExecuteNonQueryAsync();
+//        await cmd.ExecuteNonQueryAsync();
 
-        static object TryDec(string? s)
-        {
-            if (string.IsNullOrWhiteSpace(s)) return DBNull.Value;
-            if (decimal.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d))
-                return d;
-            if (decimal.TryParse(s, out d)) return d;
-            return DBNull.Value;
-        }
-    }
+//        static object TryDec(string? s)
+//        {
+//            if (string.IsNullOrWhiteSpace(s)) return DBNull.Value;
+//            if (decimal.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d))
+//                return d;
+//            if (decimal.TryParse(s, out d)) return d;
+//            return DBNull.Value;
+//        }
+//    }
     public IActionResult Index() => View();
 
     [HttpGet("ping")]
