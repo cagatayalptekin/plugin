@@ -987,7 +987,7 @@ ORDER BY ISNULL(CheckoutDate, CreatedAtUtc) DESC";
                     {
                         page.Margin(30);
                         page.Size(PageSizes.A4);
-
+                        page.PageColor(Colors.White);
                         // Header
                         page.Header().Row(row =>
                         {
