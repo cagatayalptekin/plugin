@@ -67,26 +67,212 @@ namespace PluginTest.Controllers
         {
             _httpMap.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("pos-web-ui", "1.0"));
         }
+        private static string? _cachedToken;
+        private static DateTimeOffset _tokenExp = DateTimeOffset.MinValue;
+
+        private static readonly TimeSpan TokenSkew = TimeSpan.FromSeconds(30);
+
+        private bool TokenValid()
+        {
+            if (string.IsNullOrWhiteSpace(_cachedToken)) return false;
+
+            var now = DateTimeOffset.UtcNow;
+
+            // Son kullanımı hiç set edilmemiş veya geçmişse geçersiz
+            if (_tokenExp <= now) return false;
+
+            // Erken yenileme payı: "now + 30s" hâlâ expiration'dan küçükse token geçerli say
+            return now.Add(TokenSkew) < _tokenExp;
+        }
 
         private async Task<string> GetTokenAsync()
         {
-            using var client = new HttpClient();
+            if (TokenValid()) return _cachedToken!;
+
+            var client = _http.CreateClient(); // factory → connection pooling
+            client.Timeout = TimeSpan.FromSeconds(12);
+            client.DefaultRequestHeaders.Accept.Clear();
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PluginTest", "1.0"));
+
             var payload = new { appSecretKey = AppSecretKey, restaurantSecretKey = RestaurantSecretKey };
             using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOpts), Encoding.UTF8, "application/json");
 
-            var resp = await client.PostAsync($"{BaseUrl}/auth/login", content);
+            HttpResponseMessage resp;
+            try
+            {
+                resp = await client.PostAsync($"{BaseUrl}/auth/login", content);
+            }
+            catch (TaskCanceledException ex) when (!ex.CancellationToken.IsCancellationRequested)
+            {
+                // timeout
+                throw new InvalidOperationException("Login failed: timeout", ex);
+            }
+            catch (HttpRequestException ex)
+            {
+                // ağ/dns
+                throw new InvalidOperationException("Login failed: network error", ex);
+            }
+
             var body = await resp.Content.ReadAsStringAsync();
 
             if (!resp.IsSuccessStatusCode)
                 throw new InvalidOperationException($"Login failed: {(int)resp.StatusCode} - {body}");
 
             var parsed = JsonSerializer.Deserialize<LoginResponse>(body, JsonOpts);
-            return parsed?.token ?? throw new InvalidOperationException("Token alınamadı.");
+            var token = parsed?.token;
+            if (string.IsNullOrWhiteSpace(token))
+                throw new InvalidOperationException("Token alınamadı.");
+
+            const int DefaultTokenTtlSeconds = 300; // 5 dk (istersen 600 yap)
+            _cachedToken = token!;
+            _tokenExp = DateTimeOffset.UtcNow.AddSeconds(DefaultTokenTtlSeconds);
+
+
+            return token!;
+        }
+        // ====== Ortak helper: token al, upstream isteği çalıştır, hatayı salla ======
+        private async Task<IActionResult> WithToken(Func<string, Task<IActionResult>> action)
+        {
+            string token;
+            try
+            {
+                token = await GetTokenAsync();
+            }
+            catch (InvalidOperationException ex) when (ex.InnerException is TaskCanceledException)
+            {
+                // login timeout → 504
+                return StatusCode(504, new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.StartsWith("Login failed"))
+            {
+                // login 5xx/4xx veya network → 503 gibi davran
+                return StatusCode(503, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Beklenmeyen hata (token)", detail = ex.Message });
+            }
+
+            try
+            {
+                return await action(token);
+            }
+            catch (TaskCanceledException)
+            {
+                return StatusCode(504, new { message = "Upstream timeout" });
+            }
+            catch (HttpRequestException ex)
+            {
+                return StatusCode(503, new { message = "Upstream erişilemiyor", detail = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(502, new { message = "Beklenmeyen upstream hatası", detail = ex.Message });
+            }
         }
 
+        // ====== RESTORAN DURUMU ======
+        public sealed class DisableRestaurantDto { public int? TimeOffAmount { get; set; } } // dk: 15/30/45 veya null
 
+        [HttpPost("restaurants/enable")]
+        public Task<IActionResult> EnableRestaurant() =>
+            WithToken(async token =>
+            {
+                var http = _http.CreateClient();
+                http.Timeout = TimeSpan.FromSeconds(12);
+                using var body = new StringContent("{}", Encoding.UTF8, "application/json");
 
-        private static DateTime? ParseDate(string? s)
+                var req = new HttpRequestMessage(HttpMethod.Put, $"{BaseUrl}/restaurants/status/open");
+                req.Headers.Add("token", token);
+                req.Content = body;
+
+                var resp = await http.SendAsync(req);
+                var respBody = await resp.Content.ReadAsStringAsync();
+
+                if (!resp.IsSuccessStatusCode)
+                    return StatusCode((int)resp.StatusCode, respBody);
+
+                return Ok(new { result = true, status = 100 }); // Açık (100)
+            });
+
+        [HttpPost("restaurants/disable")]
+        public Task<IActionResult> DisableRestaurant([FromBody] DisableRestaurantDto dto) =>
+            WithToken(async token =>
+            {
+                if (dto?.TimeOffAmount is int m && m is not (15 or 30 or 45))
+                    return BadRequest(new { message = "timeOffAmount sadece 15/30/45 olabilir" });
+
+                var http = _http.CreateClient();
+                http.Timeout = TimeSpan.FromSeconds(12);
+
+                object payload = (dto?.TimeOffAmount is int mm)
+      ? new { timeOffAmount = mm }
+      : new { };
+                var req = new HttpRequestMessage(HttpMethod.Put, $"{BaseUrl}/restaurants/status/close");
+                req.Headers.Add("token", token);
+                req.Content = JsonContent.Create(payload, options: JsonOpts);
+
+                var resp = await http.SendAsync(req);
+                var respBody = await resp.Content.ReadAsStringAsync();
+
+                if (!resp.IsSuccessStatusCode)
+                    return StatusCode((int)resp.StatusCode, respBody);
+
+                var status = (dto?.TimeOffAmount is int) ? 300 : 200; // Süreli Kapalı (300) / Süresiz (200)
+                return Ok(new { result = true, status });
+            });
+        // ====== KURYE DURUMU ======
+        public sealed class DisableCourierDto { public int? TimeOffAmount { get; set; } } // dk: 15/30/45 veya null
+
+        [HttpPost("restaurants/courier/enable")]
+        public Task<IActionResult> EnableCourier() =>
+            WithToken(async token =>
+            {
+                var http = _http.CreateClient();
+                http.Timeout = TimeSpan.FromSeconds(12);
+
+                var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/restaurants/courier/enable");
+                req.Headers.Add("token", token);
+                req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+
+                var resp = await http.SendAsync(req);
+                var respBody = await resp.Content.ReadAsStringAsync();
+
+                if (!resp.IsSuccessStatusCode)
+                    return StatusCode((int)resp.StatusCode, respBody);
+
+                // Upstream body zaten json → aynen iletelim
+                return Content(respBody, "application/json");
+            });
+
+        [HttpPost("restaurants/courier/disable")]
+        public Task<IActionResult> DisableCourier([FromBody] DisableCourierDto dto) =>
+            WithToken(async token =>
+            {
+                if (dto?.TimeOffAmount is int m && m is not (15 or 30 or 45))
+                    return BadRequest(new { message = "timeOffAmount sadece 15/30/45 olabilir" });
+
+                var http = _http.CreateClient();
+                http.Timeout = TimeSpan.FromSeconds(12);
+
+                object payload = (dto?.TimeOffAmount is int mm)
+                    ? new { timeOffAmount = mm }
+                    : new { }; var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/restaurants/courier/disable");
+                req.Headers.Add("token", token);
+                req.Content = JsonContent.Create(payload, options: JsonOpts);
+
+                var resp = await http.SendAsync(req);
+                var respBody = await resp.Content.ReadAsStringAsync();
+
+                if (!resp.IsSuccessStatusCode)
+                    return StatusCode((int)resp.StatusCode, respBody);
+
+                return Content(respBody, "application/json");
+            });
+    
+
+    private static DateTime? ParseDate(string? s)
         {
             if (string.IsNullOrWhiteSpace(s)) return null;
             // Getir genelde "2025-09-15T20:52:12.345Z" veya "dd.MM.yyyy HH:mm" türevleri gönderebilir.
@@ -200,62 +386,46 @@ VALUES(@OrderId, @ProductId, @NameTr, @NameEn, @Qty, @Price, @TotalPrice);
         // =============  POS / KURYE AÇ-KAPA  (Restaurant & Courier) ==========
         // =====================================================================
 
-        [HttpPost("restaurants/enable")]
-        public async Task<IActionResult> EnableRestaurant()
-        {
-            var token = await GetTokenAsync();
-            using var http = new HttpClient();
-            http.DefaultRequestHeaders.Add("token", token);
+        //[HttpPost("restaurants/enable")]
+        //public async Task<IActionResult> EnableRestaurant()
+        //{
+        //    var token = await GetTokenAsync();
+        //    using var http = new HttpClient();
+        //    http.DefaultRequestHeaders.Add("token", token);
 
-            using var body = new StringContent("{}", Encoding.UTF8, "application/json");
-            var resp = await http.PutAsync($"{BaseUrl}/restaurants/status/open", body);
-            var respBody = await resp.Content.ReadAsStringAsync();
+        //    using var body = new StringContent("{}", Encoding.UTF8, "application/json");
+        //    var resp = await http.PutAsync($"{BaseUrl}/restaurants/status/open", body);
+        //    var respBody = await resp.Content.ReadAsStringAsync();
 
-            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, respBody);
-            return Ok(new { result = true, status = 100 });
-        }
+        //    if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, respBody);
+        //    return Ok(new { result = true, status = 100 });
+        //}
 
-        public class DisableRestaurantDto { public int? TimeOffAmount { get; set; } }
+        //public class DisableRestaurantDto { public int? TimeOffAmount { get; set; } }
 
-        [HttpPost("restaurants/disable")]
-        public async Task<IActionResult> DisableRestaurant([FromBody] DisableRestaurantDto dto)
-        {
-            var token = await GetTokenAsync();
-            using var http = new HttpClient();
-            http.DefaultRequestHeaders.Add("token", token);
+        //[HttpPost("restaurants/disable")]
+        //public async Task<IActionResult> DisableRestaurant([FromBody] DisableRestaurantDto dto)
+        //{
+        //    var token = await GetTokenAsync();
+        //    using var http = new HttpClient();
+        //    http.DefaultRequestHeaders.Add("token", token);
 
-            var json = (dto?.TimeOffAmount is int m)
-                ? JsonSerializer.Serialize(new { timeOffAmount = m }, JsonOpts)
-                : "{}";
+        //    var json = (dto?.TimeOffAmount is int m)
+        //        ? JsonSerializer.Serialize(new { timeOffAmount = m }, JsonOpts)
+        //        : "{}";
 
-            using var body = new StringContent(json, Encoding.UTF8, "application/json");
-            var resp = await http.PutAsync($"{BaseUrl}/restaurants/status/close", body);
-            var respBody = await resp.Content.ReadAsStringAsync();
+        //    using var body = new StringContent(json, Encoding.UTF8, "application/json");
+        //    var resp = await http.PutAsync($"{BaseUrl}/restaurants/status/close", body);
+        //    var respBody = await resp.Content.ReadAsStringAsync();
 
-            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, respBody);
+        //    if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, respBody);
 
-            var status = (dto?.TimeOffAmount is int) ? 300 : 200;
-            return Ok(new { result = true, status });
-        }
+        //    var status = (dto?.TimeOffAmount is int) ? 300 : 200;
+        //    return Ok(new { result = true, status });
+        //}
 
-        public class DisableCourierDto { public int? TimeOffAmount { get; set; } } // dk
-
-        [HttpPost("restaurants/courier/enable")]
-        public async Task<IActionResult> EnableCourier()
-        {
-            var token = await GetTokenAsync();
-            using var http = new HttpClient();
-            http.DefaultRequestHeaders.Add("token", token);
-
-            var resp = await http.PostAsync($"{BaseUrl}/restaurants/courier/enable",
-                new StringContent("{}", Encoding.UTF8, "application/json"));
-
-            var body = await resp.Content.ReadAsStringAsync();
-            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
-
-            return Content(body, "application/json");
-        }
-        public class PastOrderDto
+       
+public class PastOrderDto
         {
             public FoodOrderResponse Order { get; set; } = new();
         }
@@ -291,25 +461,6 @@ ORDER BY ISNULL(CheckoutDate, CreatedAtUtc) DESC";
             }
             return Ok(list);
         }
-        [HttpPost("restaurants/courier/disable")]
-        public async Task<IActionResult> DisableCourier([FromBody] DisableCourierDto dto)
-        {
-            var token = await GetTokenAsync();
-            using var http = new HttpClient();
-            http.DefaultRequestHeaders.Add("token", token);
-
-            var req = new { timeOffAmount = dto.TimeOffAmount };
-            var json = JsonSerializer.Serialize(req, JsonOpts);
-
-            var resp = await http.PostAsync($"{BaseUrl}/restaurants/courier/disable",
-                new StringContent(json, Encoding.UTF8, "application/json"));
-
-            var body = await resp.Content.ReadAsStringAsync();
-            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
-
-            return Content(body, "application/json");
-        }
-
         // =====================================================================
         // ======================  ORDER STREAM (BİZİM EVENT)  =================
         // =====================================================================
@@ -507,18 +658,50 @@ ORDER BY ISNULL(CheckoutDate, CreatedAtUtc) DESC";
         // =====================================================================
 
         [HttpGet("restaurants")]
-        public async Task<IActionResult> GetRestaurantInfo()
+        public Task<IActionResult> GetRestaurantInfo() =>
+    WithToken(async token =>
+    {
+        var http = _http.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(12);
+
+        var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/restaurants");
+        req.Headers.Add("token", token);
+
+        var resp = await http.SendAsync(req);
+        var raw = await resp.Content.ReadAsStringAsync();
+        if (!resp.IsSuccessStatusCode)
+            return StatusCode((int)resp.StatusCode, raw);
+
+        // Normalize: Upstream dizi/obje fark etmez → FE'nin beklediği shape
+        try
         {
-            var token = await GetTokenAsync();
-            using var http = new HttpClient();
-            http.DefaultRequestHeaders.Add("token", token);
+            using var doc = JsonDocument.Parse(raw);
+            JsonElement root = doc.RootElement;
 
-            var resp = await http.GetAsync($"{BaseUrl}/restaurants");
-            var body = await resp.Content.ReadAsStringAsync();
+            JsonElement r; // seçilen restoran kaydı
+            if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0)
+                r = root[0];
+            else if (root.ValueKind == JsonValueKind.Object)
+                r = root;
+            else
+                return Ok(new { status = 200, isCourierAvailable = false, id = (string?)null, name = (string?)null });
 
-            if (!resp.IsSuccessStatusCode) return StatusCode((int)resp.StatusCode, body);
-            return Content(body, "application/json");
+            int status = r.TryGetProperty("status", out var s) && s.TryGetInt32(out var sv) ? sv : 200;
+            bool isCourier = r.TryGetProperty("isCourierAvailable", out var c) && c.ValueKind == JsonValueKind.True
+                             || (r.TryGetProperty("courierAvailable", out var c2) && c2.ValueKind == JsonValueKind.True);
+
+            string? id = r.TryGetProperty("id", out var idp) ? idp.ToString() : null;
+            string? name = r.TryGetProperty("name", out var np) ? np.ToString() : null;
+
+            var shaped = new { status, isCourierAvailable = isCourier, id, name };
+            return Ok(shaped);
         }
+        catch
+        {
+            // Parse edilemezse ham body’yi dönmeye devam et (mevcut davranış)
+            return Content(raw, "application/json");
+        }
+    });
 
         [HttpPost("restaurant")]
         public IActionResult StatusChange([FromBody] PosStatusChangeModel statusChange)
